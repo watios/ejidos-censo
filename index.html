@@ -1,0 +1,222 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+  <title>Control de Ejidos</title>
+  <link rel="manifest" href="manifest.json">
+  <meta name="theme-color" content="#1976D2">
+  <link rel="stylesheet" href="style.css">
+  <link rel="apple-touch-icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Crect width='100' height='100' fill='%231976D2'/%3E%3Ctext x='50' y='67' font-size='50' text-anchor='middle' fill='white'%3E🏠%3C/text%3E%3C/svg%3E">
+</head>
+<body>
+  <div class="app-header">
+    <button id="btnBackToMenu" class="btn-back-nav" aria-label="Volver al menú" style="visibility: hidden;">⬅️</button>
+    <h1 id="appTitle">🏠 Control de Ejidos</h1>
+  </div>
+
+  <div id="main-menu" class="menu-grid active">
+    <div class="menu-item" data-target="sec-hogares">
+      <div class="menu-icon">📝</div>
+      <div class="menu-label">Registro de Hogares</div>
+      <div class="menu-desc">Carga de hogares y cabezas de familia</div>
+    </div>
+    <div class="menu-item" data-target="sec-localidades">
+      <div class="menu-icon">📍</div>
+      <div class="menu-label">Localidades</div>
+      <div class="menu-desc">Administrar San Pedro, Bichar, etc.</div>
+    </div>
+    <div class="menu-item" data-target="sec-sectores">
+      <div class="menu-icon">🗺️</div>
+      <div class="menu-label">Sectores</div>
+      <div class="menu-desc">Zonas dependientes de localidad</div>
+    </div>
+    <div class="menu-item" data-target="sec-reportes">
+      <div class="menu-icon">📊</div>
+      <div class="menu-label">Reportes</div>
+      <div class="menu-desc">Filtros, Costa y cargas con hijos</div>
+    </div>
+    <div class="menu-item" data-target="sec-datos">
+      <div class="menu-icon">💾</div>
+      <div class="menu-label">Gestión de Datos</div>
+      <div class="menu-desc">Importar, Exportar y Reseteo JSON</div>
+    </div>
+  </div>
+
+  <div id="sec-hogares" class="section-content">
+    <div class="card">
+      <h3>➕ Registrar / Editar Hogar</h3>
+      <input type="hidden" id="hogarId">
+      
+      <label for="hogarLocalidad">Localidad (*):</label>
+      <select id="hogarLocalidad" class="form-select"><option value="">Seleccione...</option></select>
+      
+      <label for="hogarSector">Sector (*):</label>
+      <select id="hogarSector" class="form-select"><option value="">Seleccione una Localidad primero...</option></select>
+
+      <label for="hogarNombre">Nombre y Apellido de Cabeza de Hogar (*):</label>
+      <input type="text" id="hogarNombre" autocomplete="off" placeholder="Ej. Juan Pérez">
+
+      <label for="hogarCedula">Cédula de Identidad (*):</label>
+      <input type="text" id="hogarCedula" autocomplete="off" placeholder="Ej. V-12345678">
+
+      <label for="hogarNacionalidad">Nacionalidad (*):</label>
+      <select id="hogarNacionalidad" class="form-select">
+        <option value="Venezolano/a">Venezolano/a</option>
+        <option value="Extranjero/a">Extranjero/a</option>
+      </select>
+
+      <label for="hogarRif">RIF (Opcional):</label>
+      <input type="text" id="hogarRif" autocomplete="off" placeholder="Ej. J-12345678-0">
+
+      <label for="hogarCorreo">Correo Electrónico (Opcional):</label>
+      <input type="text" id="hogarCorreo" autocomplete="off" placeholder="ejemplo@correo.com">
+
+      <label for="hogarTelefono">Teléfono (*):</label>
+      <input type="text" id="hogarTelefono" autocomplete="off" placeholder="Ej. 04121234567">
+
+      <label for="hogarCasaNo">Número de Casa (Opcional):</label>
+      <input type="text" id="hogarCasaNo" autocomplete="off" placeholder="Ej. A-12">
+
+      <label for="hogarOrganizacion">Organización / Institución (*):</label>
+      <select id="hogarOrganizacion" class="form-select">
+        <option value="Ninguna">Ninguna</option>
+        <option value="Misión Ribas">Misión Ribas</option>
+        <option value="Consejo Comunal">Consejo Comunal</option>
+        <option value="GNB">GNB</option>
+      </select>
+
+      <label for="hogarCostera">¿Pertenece a Zona Costera? (*):</label>
+      <select id="hogarCostera" class="form-select">
+        <option value="No">No</option>
+        <option value="Si">Si</option>
+      </select>
+
+      <label for="hogarHijos">Número de Hijos (*):</label>
+      <input type="number" id="hogarHijos" min="0" value="0">
+
+      <label for="hogarPareja">¿Tiene Pareja? (*):</label>
+      <select id="hogarPareja" class="form-select">
+        <option value="No">No</option>
+        <option value="Si">Si</option>
+      </select>
+
+      <label for="hogarAnosConst">Años de Construcción de la Casa (*):</label>
+      <input type="number" id="hogarAnosConst" min="0" value="0">
+
+      <label style="font-weight: bold; margin-top: 15px; display: block;">Foto de la Fachada de la Casa (Opcional):</label>
+      <div style="margin: 10px 0; text-align: center;">
+        <button type="button" class="btn primary" onclick="document.getElementById('hogarFotoInput').click()">📸 Tomar / Seleccionar Foto</button>
+        <input type="file" id="hogarFotoInput" accept="image/*" capture="environment" style="display:none;">
+        
+        <div id="hogarFotoPreviewContainer" style="display:none; margin-top:15px; position:relative; inline-block;">
+          <img id="hogarFotoPreview" src="" alt="Vista previa" style="max-width:100%; max-height:200px; border-radius:8px; border:2px solid #1976D2; box-shadow:0 2px 5px rgba(0,0,0,0.2);">
+          <br>
+          <button type="button" id="btnQuitarFoto" class="btn" style="background-color:#d32f2f; color:white; padding:4px 10px; font-size:0.8rem; margin-top:5px;">🗑️ Quitar Foto</button>
+        </div>
+        <div id="hogarFotoStatus" style="font-size:0.8rem; color:#666; margin-top:5px;">Sin foto cargada</div>
+      </div>
+
+      <button id="btnGuardarHogar" class="btn success">Guardar Registro</button>
+      <button id="btnCancelarHogarEdicion" class="btn secondary" style="display:none;">Cancelar Edición</button>
+    </div>
+
+    <div class="card">
+      <h3>👥 Padrones de Hogares Registrados</h3>
+      <input type="text" id="searchHogarInput" placeholder="🔍 Buscar por Nombre o Cédula..." autocomplete="off">
+      <div id="hogaresList" class="person-list">Cargando datos locales...</div>
+    </div>
+  </div>
+
+  <div id="sec-localidades" class="section-content">
+    <div class="card">
+      <h3>📍 Agregar / Editar Localidad</h3>
+      <input type="hidden" id="locId">
+      <input type="text" id="locNombre" placeholder="Nombre de la localidad" autocomplete="off">
+      <button id="btnGuardarLoc" class="btn success">Guardar Localidad</button>
+      <button id="btnCancelarLoc" class="btn secondary" style="display:none;">Cancelar</button>
+    </div>
+    <div class="card">
+      <h3>📋 Localidades Existentes</h3>
+      <div id="localidadesList" class="person-list"></div>
+    </div>
+  </div>
+
+  <div id="sec-sectores" class="section-content">
+    <div class="card">
+      <h3>🗺️ Agregar / Editar Sector</h3>
+      <input type="hidden" id="secId">
+      <label for="secLocalidadBelongs">Pertenece a Localidad:</label>
+      <select id="secLocalidadBelongs" class="form-select"></select>
+      <input type="text" id="secNombre" placeholder="Nombre del Sector" autocomplete="off">
+      <button id="btnGuardarSec" class="btn success">Guardar Sector</button>
+      <button id="btnCancelarSec" class="btn secondary" style="display:none;">Cancelar</button>
+    </div>
+    <div class="card">
+      <h3>📋 Listado de Sectores por Localidad</h3>
+      <div id="sectoresList" class="person-list"></div>
+    </div>
+  </div>
+
+  <div id="sec-reportes" class="section-content">
+    <div class="card">
+      <h3>📊 Generar Reportes Estructurados</h3>
+      
+      <label for="repTipo">Selecciona el tipo de reporte:</label>
+      <select id="repTipo" class="form-select">
+        <option value="localidad">1) Por Localidad</option>
+        <option value="sector">2) Por Sector</option>
+        <option value="costera">3) Zona Costera (Localidad, Sector, Nombre)</option>
+        <option value="hijos">4) Con Hijos (Familias con hijos registrados)</option>
+      </select>
+
+      <div id="divRepFiltroLocalidad">
+        <label for="repLocalidad">Filtrar por Localidad:</label>
+        <select id="repLocalidad" class="form-select"></select>
+      </div>
+
+      <div id="divRepFiltroSector" style="display:none;">
+        <label for="repSector">Filtrar por Sector:</label>
+        <select id="repSector" class="form-select"><option value="">Seleccione la localidad primero...</option></select>
+      </div>
+
+      <button id="btnGenerarReporte" class="btn primary">🔍 Buscar y Procesar Datos</button>
+      <button id="btnImprimirReporte" class="btn secondary" style="display:none;">🖨️ Imprimir / Guardar PDF</button>
+    </div>
+
+    <div class="card" id="cardResultadosReporte" style="display:none;">
+      <h3>📋 Vista de Resultados</h3>
+      <div id="reporteContenidoTabla" style="overflow-x:auto;"></div>
+    </div>
+  </div>
+
+  <div id="sec-datos" class="section-content">
+    <div class="card">
+      <h3>📥 Exportar Archivos de Respaldo (.JSON)</h3>
+      <p class="section-desc">Descarga los repositorios locales a tu dispositivo para salvaguardar la información.</p>
+      <button id="btnExpDataCompleta" class="btn primary">📦 Descargar Data Completa Global</button>
+      <button id="btnExpLocSectores" class="btn success">📍 Descargar Estructura (Localidades + Sectores)</button>
+    </div>
+
+    <div class="card">
+      <h3>📤 Cargar / Importar Repositorio (.JSON)</h3>
+      <p class="section-desc">Selecciona un archivo compatible previamente generado por esta aplicación.</p>
+      <button id="btnClickFile" class="btn secondary">📄 Seleccionar Archivo JSON</button>
+      <input type="file" id="fileInputImport" accept=".json" style="display:none;">
+      <div id="fileInfoLabel" style="margin: 10px 0; font-size:0.9rem; font-weight:600; text-align:center; color:#333;">Ningún archivo seleccionado</div>
+      <button id="btnProcesarImportacion" class="btn success" style="display:none; background-color:#673AB7;">⚡ Consolidar e Importar Datos</button>
+    </div>
+
+    <div class="card" style="border: 1px solid #ffc107;">
+      <h3 style="color:#d32f2f;">🚨 Depuración y Zona Crítica</h3>
+      <p class="section-desc">Esta acción eliminará de forma irreversible toda la data almacenada de hogares, las localidades personalizadas y sus sectores mapeados.</p>
+      <button id="btnResetearTodo" class="btn" style="background-color:#d32f2f; color:white;">🗑️ Resetear Todos los Datos</button>
+    </div>
+  </div>
+
+  <div id="toastStatus" style="display:none; position:fixed; bottom:20px; left:50%; transform:translateX(-50%); background:#333; color:white; padding:12px 24px; border-radius:30px; z-index:9999; font-size:0.9rem; box-shadow:0 3px 10px rgba(0,0,0,0.2); text-align:center;"></div>
+
+  <script src="dexie.min.js"></script>
+  <script src="app.js"></script>
+</body>
+</html>
