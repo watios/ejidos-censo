@@ -1,22 +1,18 @@
 {
-  "id": "/app-asistencia-local",
-  "name": "Asistencia Diaria",
-  "short_name": "Asistencia",
-  "start_url": ".",
+  "name": "Control de Ejidos - Isla de Coche",
+  "short_name": "EjidosCoche",
+  "description": "Sistema offline para el registro de hogares y ejidos.",
+  "start_url": "./index.html",
   "display": "standalone",
-  "orientation": "portrait",
-  "theme_color": "#1976D2",
-  "background_color": "#FFFFFF",
+  "background_color": "#1976D2",
+  "theme-color": "#1976D2",
+  "orientation": "any",
   "icons": [
     {
-      "src": "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 192 192'%3E%3Crect width='192' height='192' fill='%231976D2'/%3E%3Ctext x='96' y='128' font-size='96' text-anchor='middle' fill='white'%3E📋%3C/text%3E%3C/svg%3E",
-      "sizes": "192x192",
-      "type": "image/svg+xml"
-    },
-    {
-      "src": "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 512 512'%3E%3Crect width='512' height='512' fill='%231976D2'/%3E%3Ctext x='256' y='340' font-size='256' text-anchor='middle' fill='white'%3E📋%3C/text%3E%3C/svg%3E",
+      "src": "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Crect width='100' height='100' fill='%231976D2'/%3E%3Ctext x='50' y='67' font-size='50' text-anchor='middle' fill='white'%3E🏠%3C/text%3E%3C/svg%3E",
       "sizes": "512x512",
-      "type": "image/svg+xml"
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
     }
   ]
 }

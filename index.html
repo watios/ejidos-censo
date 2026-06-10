@@ -10,6 +10,13 @@
   <link rel="apple-touch-icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Crect width='100' height='100' fill='%231976D2'/%3E%3Ctext x='50' y='67' font-size='50' text-anchor='middle' fill='white'%3E🏠%3C/text%3E%3C/svg%3E">
 </head>
 <body>
+
+  <div id="bannerInstalacion" style="display: none; background: #FFF3E0; border-bottom: 2px solid #FFB74D; padding: 12px 16px; text-align: center; box-shadow: 0 2px 4px rgba(0,0,0,0.1);">
+    <p style="margin: 0 0 8px 0; font-size: 0.95rem; font-weight: bold; color: #E65100;">💻📲 Instala la aplicación para trabajar sin conexión a Internet</p>
+    <button id="btnInstalarApp" class="btn success" style="background-color: #EF6C00; padding: 8px 16px; font-size: 0.9rem; margin-right: 8px; border: none; color: white; border-radius: 4px; cursor: pointer;">📥 Instalar en Equipo</button>
+    <button id="btnCerrarBanner" class="btn secondary" style="padding: 8px 12px; font-size: 0.9rem; background: #e0e0e0; color: #333; border: none; border-radius: 4px; cursor: pointer;">Luego</button>
+  </div>
+
   <div class="app-header">
     <button id="btnBackToMenu" class="btn-back-nav" aria-label="Volver al menú" style="visibility: hidden;">⬅️</button>
     <h1 id="appTitle">🏠 Control de Ejidos</h1>
@@ -110,19 +117,6 @@
         <button type="button" id="btnCapturarGPS" class="btn primary" style="padding: 0 12px; font-size: 0.9rem; white-space: nowrap;">📍 Capturar GPS</button>
       </div>
 
-      <label style="font-weight: bold; margin-top: 15px; display: block;">Foto de la Fachada de la Casa (Opcional):</label>
-      <div style="margin: 10px 0; text-align: center;">
-        <button type="button" class="btn primary" onclick="document.getElementById('hogarFotoInput').click()">📸 Tomar / Seleccionar Foto</button>
-        <input type="file" id="hogarFotoInput" accept="image/*" capture="environment" style="display:none;">
-        
-        <div id="hogarFotoPreviewContainer" style="display:none; margin-top:15px; position:relative; display: inline-block;">
-          <img id="hogarFotoPreview" src="" alt="Vista previa" style="max-width:100%; max-height:200px; border-radius:8px; border:2px solid #1976D2; box-shadow:0 2px 5px rgba(0,0,0,0.2);">
-          <br>
-          <button type="button" id="btnQuitarFoto" class="btn" style="background-color:#d32f2f; color:white; padding:4px 10px; font-size:0.8rem; margin-top:5px;">🗑️ Quitar Foto</button>
-        </div>
-        <div id="hogarFotoStatus" style="font-size:0.8rem; color:#666; margin-top:5px;">Sin foto cargada</div>
-      </div>
-
       <button id="btnGuardarHogar" class="btn success">Guardar Registro</button>
       <button id="btnCancelarHogarEdicion" class="btn secondary" style="display:none;">Cancelar Edición</button>
     </div>
@@ -167,7 +161,6 @@
   <div id="sec-reportes" class="section-content">
     <div class="card">
       <h3>📊 Generar Reportes Estructurados</h3>
-      
       <label for="repTipo">Selecciona el tipo de reporte:</label>
       <select id="repTipo" class="form-select">
         <option value="localidad">1) Por Localidad</option>
@@ -205,8 +198,8 @@
     </div>
 
     <div class="card">
-      <h3>📤 Importar Copias de Seguridad (.JSON)</h3>
-      <p class="section-desc">Sube cualquier archivo JSON de respaldo generado por esta aplicación (Hogares o Estructuras).</p>
+      <h3>📤 Cargar / Importar Repositorio (.JSON)</h3>
+      <p class="section-desc">Selecciona un archivo compatible previamente generado por esta aplicación.</p>
       <button id="btnClickFile" class="btn secondary">📄 Seleccionar Archivo JSON</button>
       <input type="file" id="fileInputImport" accept=".json" style="display:none;">
       <div id="fileInfoLabel" style="margin: 10px 0; font-size:0.9rem; font-weight:600; text-align:center; color:#333;">Ningún archivo seleccionado</div>
