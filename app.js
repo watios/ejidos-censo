@@ -5,16 +5,16 @@ const db = new Dexie('ControlEjidosDB');
 db.version(1).stores({
   localidades: '++id, nombre',
   sectores: '++id, localidadId, nombre',
-  hogares: '++id, cedula, nombre, localidadId, sectorId, costera, hijos' // Mantiene compatibilidad nativa
+  hogares: '++id, cedula, nombre, localidadId, sectorId, costera, hijos'
 });
 
 // Variables de estado global de la interfaz
 let activeSearchQuery = '';
 let selectedImportData = null;
-let importType = ''; // 'completa' o 'estructura'
-let currentFotoBase64 = ''; // Almacena temporalmente la foto procesada de la casa en Base64
+let importType = ''; // 'solo_hogares' o 'estructura_geografica'
+let currentFotoBase64 = ''; // Almacena la foto procesada de la casa en Base64
 
-// Localidades iniciales requeridas por especificación técnica
+// Localidades iniciales predefinidas
 const localidadesPredefinidas = ["San Pedro", "Bichar", "Guinima", "Amparo", "Guamache", "La Uva", "Zulica"];
 
 // Precarga automática al arrancar la app
@@ -25,6 +25,7 @@ document.addEventListener('DOMContentLoaded', async () => {
   loadLocalidadesUI();
   loadSectoresUI();
   inicializarManejadorFoto();
+  inicializarManejadorGPS();
 });
 
 async function verificarYPrecargarLocalidades() {
@@ -34,6 +35,77 @@ async function verificarYPrecargarLocalidades() {
       await db.localidades.add({ nombre: loc.trim() });
     }
   }
+}
+
+// =========================================================================
+// 1.5 CONVERSOR NATIVO: GPS DECIMAL A GRADOS, MINUTOS Y SEGUNDOS (GMS)
+// =========================================================================
+function convertirDecimalAGMS(lat, lng) {
+  function formatComponent(val, isLat) {
+    const absVal = Math.abs(val);
+    const grados = Math.floor(absVal);
+    const minutosFloat = (absVal - grados) * 60;
+    const minutos = Math.floor(minutosFloat);
+    const segundos = ((minutosFloat - minutos) * 60).toFixed(2);
+    
+    let direccion = '';
+    if (isLat) {
+      direccion = val >= 0 ? 'N' : 'S';
+    } else {
+      direccion = val >= 0 ? 'E' : 'O'; // 'O' para el Oeste en español compatible con Google Earth
+    }
+    return `${grados}°${minutos}'${segundos}"${direccion}`;
+  }
+
+  const latGMS = formatComponent(lat, true);
+  const lngGMS = formatComponent(lng, false);
+  return `${latGMS} ${lngGMS}`;
+}
+
+function inicializarManejadorGPS() {
+  const btnGps = document.getElementById('btnCapturarGPS');
+  const inputCoords = document.getElementById('hogarCoordenadas');
+
+  btnGps.addEventListener('click', () => {
+    if (!navigator.geolocation) {
+      showStatus('❌ Su dispositivo no soporta geolocalización nativa.');
+      return;
+    }
+
+    btnGps.innerText = '📡 Buscando...';
+    btnGps.disabled = true;
+
+    navigator.geolocation.getCurrentPosition(
+      (position) => {
+        const lat = position.coords.latitude;
+        const lng = position.coords.longitude;
+        const gmsTexto = convertirDecimalAGMS(lat, lng);
+        
+        inputCoords.value = gmsTexto;
+        btnGps.innerText = '📍 Capturar GPS';
+        btnGps.disabled = false;
+        showStatus('✅ Ubicación capturada con éxito.');
+      },
+      (error) => {
+        btnGps.innerText = '📍 Capturar GPS';
+        btnGps.disabled = false;
+        switch(error.code) {
+          case error.PERMISSION_DENIED:
+            showStatus('❌ Permiso denegado. Active el GPS de su equipo.');
+            break;
+          case error.POSITION_UNAVAILABLE:
+            showStatus('❌ Señal satelital no disponible en este punto.');
+            break;
+          case error.TIMEOUT:
+            showStatus('❌ Tiempo de espera agotado buscando señal GPS.');
+            break;
+          default:
+            showStatus('❌ Error desconocido al leer el GPS.');
+        }
+      },
+      { enableHighAccuracy: true, timeout: 15000, maximumAge: 0 }
+    );
+  });
 }
 
 // =========================================================================
@@ -52,7 +124,6 @@ document.querySelectorAll('.menu-item').forEach(item => {
     document.getElementById('btnBackToMenu').style.visibility = 'visible';
     document.getElementById('appTitle').innerText = label;
 
-    // Ejecuciones reactivas al abrir módulos
     if (targetId === 'sec-hogares') { loadHogares(); resetFormHogar(); }
     if (targetId === 'sec-localidades') { loadLocalidadesUI(); resetFormLoc(); }
     if (targetId === 'sec-sectores') { loadSectoresUI(); resetFormSec(); }
@@ -68,7 +139,6 @@ document.getElementById('btnBackToMenu').addEventListener('click', () => {
   document.getElementById('appTitle').innerText = '🏠 Control de Ejidos';
 });
 
-// Helper de avisos rápidos integrados (Toast)
 function showStatus(message, duration = 3000) {
   const toast = document.getElementById('toastStatus');
   toast.innerText = message;
@@ -81,7 +151,6 @@ function showStatus(message, duration = 3000) {
 // =========================================================================
 async function actualizarDesplegablesLocalidades() {
   const locs = await db.localidades.orderBy('nombre').toArray();
-  
   const optionsHtml = '<option value="">Seleccione...</option>' + 
     locs.map(l => `<option value="${l.id}">${escapeHtml(l.nombre)}</option>`).join('');
   
@@ -90,13 +159,11 @@ async function actualizarDesplegablesLocalidades() {
   document.getElementById('repLocalidad').innerHTML = '<option value="">-- Todas --</option>' + locs.map(l => `<option value="${l.id}">${escapeHtml(l.nombre)}</option>`).join('');
 }
 
-// Evento disparador al cambiar localidad en formulario de hogares
 document.getElementById('hogarLocalidad').addEventListener('change', async (e) => {
   const locId = parseInt(e.target.value);
   await actualizarDesplegableSectores(locId, 'hogarSector', 'Seleccione un Sector...');
 });
 
-// Evento disparador en Filtros de Reportes
 document.getElementById('repLocalidad').addEventListener('change', async (e) => {
   const locId = parseInt(e.target.value);
   if (!locId) {
@@ -122,7 +189,7 @@ async function actualizarDesplegableSectores(localidadId, targetSelectId, defaul
 }
 
 // =========================================================================
-// 3.5 ALGORITMO DE OPTIMIZACIÓN Y COMPRESIÓN DE FOTOS CASAS (< 70KB)
+// 4. COMPRESIÓN DE FOTOS CASAS (< 70KB)
 // =========================================================================
 function inicializarManejadorFoto() {
   const fotoInput = document.getElementById('hogarFotoInput');
@@ -137,7 +204,6 @@ function inicializarManejadorFoto() {
     reader.onload = function(event) {
       const img = new Image();
       img.onload = function() {
-        // Reducción inicial de escala a un tamaño HD operativo estándar
         let width = img.width;
         let height = img.height;
         const maxDimension = 1024;
@@ -158,28 +224,25 @@ function inicializarManejadorFoto() {
         const ctx = canvas.getContext('2d');
         ctx.drawImage(img, 0, 0, width, height);
 
-        // Compresión recursiva iterativa bajando calidad para asegurar que pese menos de 70kb
         let calidad = 0.85;
         let base64Result = '';
         let flagCompreso = false;
 
         while (calidad > 0.1) {
           base64Result = canvas.toDataURL('image/jpeg', calidad);
-          // Calcular tamaño estimado del Base64 resultante en bytes
           const stringLength = base64Result.length - 'data:image/jpeg;base64,'.length;
           const sizeInBytes = stringLength * (3 / 4);
           
-          if (sizeInBytes <= 70000) { // 70 KB límite estricto
+          if (sizeInBytes <= 70000) { 
             flagCompreso = true;
             const sizeInKb = (sizeInBytes / 1024).toFixed(1);
             document.getElementById('hogarFotoStatus').innerText = `Foto optimizada con éxito (${sizeInKb} KB)`;
             break;
           }
-          calidad -= 0.1; // Reduce la calidad en pasos del 10%
+          calidad -= 0.1; 
         }
 
         if (!flagCompreso) {
-          // Ajuste de emergencia en resolución si la compresión por calidad no bastó
           canvas.width = width * 0.6;
           canvas.height = height * 0.6;
           ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
@@ -209,7 +272,7 @@ function mostrarVistaPreviaFoto(base64Data) {
   const imgElement = document.getElementById('hogarFotoPreview');
   if (base64Data) {
     imgElement.src = base64Data;
-    container.style.display = 'block';
+    container.style.display = 'inline-block';
   } else {
     container.style.display = 'none';
     imgElement.src = '';
@@ -217,7 +280,7 @@ function mostrarVistaPreviaFoto(base64Data) {
 }
 
 // =========================================================================
-// 4. MÓDULO: CRUD Y VALIDACIÓN DE HOGARES (PROCESO PRINCIPAL)
+// 5. MÓDULO: CRUD Y VALIDACIÓN DE HOGARES (INCLUYE COORDENADAS)
 // =========================================================================
 async function loadHogares() {
   let list = await db.hogares.toArray();
@@ -233,7 +296,6 @@ async function loadHogares() {
     list = list.filter(h => h.nombre.toLowerCase().includes(q) || h.cedula.toLowerCase().includes(q));
   }
 
-  // Mapeos rápidos para mostrar textos en lugar de IDs numéricos de Dexie
   const mapLoc = new Map((await db.localidades.toArray()).map(l => [l.id, l.nombre]));
   const mapSec = new Map((await db.sectores.toArray()).map(s => [s.id, s.nombre]));
 
@@ -241,7 +303,7 @@ async function loadHogares() {
     <div class="person-item" style="display: flex; flex-wrap: wrap; gap: 12px; align-items: center;">
       ${h.foto ? `
         <div style="flex: 0 0 70px; text-align: center;">
-          <img src="${h.foto}" style="width: 70px; height: 70px; object-fit: cover; border-radius: 6px; border: 1px solid #ccc;" alt="Miniatura casa">
+          <img src="${h.foto}" style="width: 70px; height: 70px; object-fit: cover; border-radius: 6px; border: 1px solid #ccc;" alt="Fachada">
         </div>
       ` : `
         <div style="flex: 0 0 70px; height: 70px; background: #e0e0e0; border-radius: 6px; display: flex; align-items: center; justify-content: center; font-size: 1.5rem; color: #9e9e9e;">
@@ -254,6 +316,7 @@ async function loadHogares() {
         <div class="cedula" style="color:#1976D2; font-weight:500;">
           📍 ${escapeHtml(mapLoc.get(h.localidadId) || 'Indefinida')} - 🧭 ${escapeHtml(mapSec.get(h.sectorId) || 'Sin Sector')}
         </div>
+        ${h.coordenadas ? `<div class="cedula" style="color:#2E7D32;">🌐 Coords: <code>${escapeHtml(h.coordenadas)}</code></div>` : ''}
         <div class="cedula">Hijos: ${h.hijos} | Costa: ${h.costera} | Inst: ${h.organizacion}</div>
       </div>
       <div class="action-buttons" style="flex: 0 0 auto;">
@@ -275,23 +338,23 @@ document.getElementById('btnGuardarHogar').addEventListener('click', async () =>
   const secId = parseInt(document.getElementById('hogarSector').value);
   const nombre = document.getElementById('hogarNombre').value.trim();
   const cedula = document.getElementById('hogarCedula').value.trim();
-  const nacionalidad = document.getElementById('hogarNacionalidad').value;
+  const nacio = document.getElementById('hogarNacionalidad').value;
   const rif = document.getElementById('hogarRif').value.trim();
   const correo = document.getElementById('hogarCorreo').value.trim();
-  const telefono = document.getElementById('hogarTelefono').value.trim();
+  const telf = document.getElementById('hogarTelefono').value.trim();
   const casaNo = document.getElementById('hogarCasaNo').value.trim();
-  const organizacion = document.getElementById('hogarOrganizacion').value;
+  const org = document.getElementById('hogarOrganizacion').value;
   const costera = document.getElementById('hogarCostera').value;
   const hijos = parseInt(document.getElementById('hogarHijos').value) || 0;
   const pareja = document.getElementById('hogarPareja').value;
   const anosConst = parseInt(document.getElementById('hogarAnosConst').value) || 0;
+  const coordenadas = document.getElementById('hogarCoordenadas').value.trim(); // Opcional
 
-  if (!locId || !secId || !nombre || !cedula || !telefono) {
+  if (!locId || !secId || !nombre || !cedula || !telf) {
     showStatus('⚠️ Por favor completa todos los campos requeridos (*)');
     return;
   }
 
-  // Restricción estricta de no duplicidad de Cédulas
   const idAct = idVal ? parseInt(idVal) : null;
   const existeCedula = await db.hogares.where('cedula').equalsIgnoreCase(cedula).first();
   if (existeCedula && (!idAct || existeCedula.id !== idAct)) {
@@ -300,9 +363,9 @@ document.getElementById('btnGuardarHogar').addEventListener('click', async () =>
   }
 
   const datosHogar = {
-    localidadId: locId, sectorId: secId, nombre, cedula, nacionalidad,
-    rif, correo, telefono, casaNo, organizacion, costera, hijos, pareja, anosConst,
-    foto: currentFotoBase64 // Integración directa en la estructura relacional JSON
+    localidadId: locId, sectorId: secId, nombre, cedula, nacionalidad: nacio,
+    rif, correo, telefono: telf, casaNo, organizacion: org, costera, hijos, pareja, anosConst,
+    coordenadas, foto: currentFotoBase64
   };
 
   if (idAct) {
@@ -323,7 +386,6 @@ async function editarHogar(id) {
   document.getElementById('hogarId').value = h.id;
   document.getElementById('hogarLocalidad').value = h.localidadId;
   
-  // Forzar actualización sincrónica del select dependiente antes de asignar el valor
   await actualizarDesplegableSectores(h.localidadId, 'hogarSector', 'Seleccione un Sector...');
   document.getElementById('hogarSector').value = h.sectorId;
 
@@ -339,12 +401,12 @@ async function editarHogar(id) {
   document.getElementById('hogarHijos').value = h.hijos;
   document.getElementById('hogarPareja').value = h.pareja;
   document.getElementById('hogarAnosConst').value = h.anosConst;
+  document.getElementById('hogarCoordenadas').value = h.coordenadas || '';
 
-  // Carga y edición reactiva de la fotografía adjunta
   currentFotoBase64 = h.foto || '';
   if (currentFotoBase64) {
     mostrarVistaPreviaFoto(currentFotoBase64);
-    document.getElementById('hogarFotoStatus').innerText = 'Foto guardada cargada. Puede cambiarla o eliminarla.';
+    document.getElementById('hogarFotoStatus').innerText = 'Foto cargada.';
   } else {
     document.getElementById('hogarFotoPreviewContainer').style.display = 'none';
     document.getElementById('hogarFotoStatus').innerText = 'Sin foto cargada';
@@ -367,10 +429,10 @@ function resetFormHogar() {
   document.getElementById('hogarHijos').value = '0';
   document.getElementById('hogarAnosConst').value = '0';
   document.getElementById('hogarLocalidad').value = '';
+  document.getElementById('hogarCoordenadas').value = '';
   document.getElementById('hogarSector').innerHTML = '<option value="">Seleccione una Localidad primero...</option>';
   document.getElementById('btnCancelarHogarEdicion').style.display = 'none';
   
-  // Limpieza del estado de cámara
   currentFotoBase64 = '';
   document.getElementById('hogarFotoInput').value = '';
   document.getElementById('hogarFotoPreviewContainer').style.display = 'none';
@@ -387,7 +449,7 @@ async function eliminarHogar(id) {
 }
 
 // =========================================================================
-// 5. MÓDULO: SECCIÓN CRUD PARA ADMINISTRAR LOCALIDADES
+// 6. MÓDULO: ADMINISTRAR LOCALIDADES
 // =========================================================================
 async function loadLocalidadesUI() {
   const locs = await db.localidades.orderBy('nombre').toArray();
@@ -408,7 +470,6 @@ document.getElementById('btnGuardarLoc').addEventListener('click', async () => {
   const nombre = document.getElementById('locNombre').value.trim();
   if (!nombre) return;
 
-  // Validar duplicidad de Localidades
   const existe = await db.localidades.where('nombre').equalsIgnoreCase(nombre).first();
   const idAct = idVal ? parseInt(idVal) : null;
   if (existe && (!idAct || existe.id !== idAct)) {
@@ -421,7 +482,7 @@ document.getElementById('btnGuardarLoc').addEventListener('click', async () => {
     showStatus('Localidad actualizada');
   } else {
     await db.localidades.add({ nombre });
-    showStatus('Localidad agregó');
+    showStatus('Localidad agregada');
   }
   resetFormLoc();
   loadLocalidadesUI();
@@ -454,7 +515,7 @@ async function eliminarLoc(id) {
 }
 
 // =========================================================================
-// 6. MÓDULO: SECCIÓN CRUD PARA ADMINISTRAR SECTORES
+// 7. MÓDULO: ADMINISTRAR SECTORES
 // =========================================================================
 async function loadSectoresUI() {
   const secs = await db.sectores.toArray();
@@ -487,7 +548,6 @@ document.getElementById('btnGuardarSec').addEventListener('click', async () => {
   const nombre = document.getElementById('secNombre').value.trim();
   if (!locId || !nombre) { showStatus('⚠️ Completa la Localidad y el Nombre.'); return; }
 
-  // Restricción: No duplicados del mismo Sector BAJO LA MISMA Localidad
   const idAct = idVal ? parseInt(idVal) : null;
   const existe = await db.sectores.where({ localidadId: locId, nombre: nombre }).first();
   if (existe && (!idAct || existe.id !== idAct)) {
@@ -534,7 +594,7 @@ async function eliminarSec(id) {
 }
 
 // =========================================================================
-// 7. MOTOR INTERACTIVO DE REPORTES EXIGIDOS
+// 8. MOTOR INTERACTIVO DE REPORTES (INCLUYE COORDENADAS)
 // =========================================================================
 document.getElementById('repTipo').addEventListener('change', (e) => {
   const tipo = e.target.value;
@@ -585,6 +645,7 @@ document.getElementById('btnGenerarReporte').addEventListener('click', async () 
             <th>Sector</th>
             <th>Cabeza de Hogar</th>
             <th>Cédula</th>
+            <th>Coordenadas Google Earth</th>
           </tr>
         </thead>
         <tbody>
@@ -597,8 +658,9 @@ document.getElementById('btnGenerarReporte').addEventListener('click', async () 
               <td>${escapeHtml(mapSec.get(h.sectorId))}</td>
               <td><strong>${escapeHtml(h.nombre)}</strong></td>
               <td>${escapeHtml(h.cedula)}</td>
+              <td><small><code>${escapeHtml(h.coordenadas) || 'No cargadas'}</code></small></td>
             </tr>
-          `).join('') || '<tr><td colspan="5" style="text-align:center;">No hay viviendas en zona costera.</td></tr>'}
+          `).join('') || '<tr><td colspan="6" style="text-align:center;">No hay viviendas en zona costera.</td></tr>'}
         </tbody>
       </table>`;
   } 
@@ -626,7 +688,7 @@ function construirTablaEstandar(data, mapLoc, mapSec) {
           <th>Cédula</th>
           <th>Nombre</th>
           <th>Ubicación</th>
-          <th>Vínculo / Organización</th>
+          <th>Coordenadas GMS</th>
           <th>Hijos</th>
           <th>Años Const.</th>
         </tr>
@@ -640,7 +702,7 @@ function construirTablaEstandar(data, mapLoc, mapSec) {
             <td>${escapeHtml(h.cedula)}</td>
             <td><strong>${escapeHtml(h.nombre)}</strong></td>
             <td>${escapeHtml(mapLoc.get(h.localidadId))}<br><small style="color:#666;">${escapeHtml(mapSec.get(h.sectorId))}</small></td>
-            <td>${escapeHtml(h.organizacion)}</td>
+            <td><small><code>${escapeHtml(h.coordenadas) || 'N/A'}</code></small></td>
             <td style="text-align:center;">${h.hijos}</td>
             <td style="text-align:center;">${h.anosConst}</td>
           </tr>
@@ -649,13 +711,12 @@ function construirTablaEstandar(data, mapLoc, mapSec) {
     </table>`;
 }
 
-// Evento nativo de impresión limpia mediante CSS de la PWA
 document.getElementById('btnImprimirReporte').addEventListener('click', () => {
   window.print();
 });
 
 // =========================================================================
-// 8. COPIAS DE SEGURIDAD Y CARGAS EXCLUSIVAS EN FORMATO .JSON
+// 9. COPIAS DE SEGURIDAD INDIVIDUALES (MANTIENE INTEGRIDAD)
 // =========================================================================
 function descargarArchivoJson(objetoData, nombreArchivo) {
   const blob = new Blob([JSON.stringify(objetoData, null, 2)], { type: 'application/json' });
@@ -669,32 +730,27 @@ function descargarArchivoJson(objetoData, nombreArchivo) {
   URL.revokeObjectURL(url);
 }
 
-// REQUERIMIENTO: JSON de la data cargada completa de toda la app (las fotos se exportan nativamente aquí)
-document.getElementById('btnExpDataCompleta').addEventListener('click', async () => {
-  const backup = {
-    formato: "ejidos_pwa_completa",
+document.getElementById('btnExpSoloHogares').addEventListener('click', async () => {
+  const backupHogares = {
+    formato: "solo_hogares",
     fecha: new Date().toISOString(),
-    localidades: await db.localidades.toArray(),
-    sectores: await db.sectores.toArray(),
     hogares: await db.hogares.toArray()
   };
-  descargarArchivoJson(backup, `Ejidos-DataCompleta-${ObtenerFechaCompacta()}.json`);
-  showStatus('📥 Respaldo global descargado');
+  descargarArchivoJson(backupHogares, `Ejidos-SoloHogares-${ObtenerFechaCompacta()}.json`);
+  showStatus('📥 Respaldo de Hogares descargado');
 });
 
-// REQUERIMIENTO: JSON exclusivo de localidades y sus sectores
 document.getElementById('btnExpLocSectores').addEventListener('click', async () => {
   const estructura = {
-    formato: "ejidos_estructura_geografica",
+    formato: "estructura_geografica",
     fecha: new Date().toISOString(),
     localidades: await db.localidades.toArray(),
     sectores: await db.sectores.toArray()
   };
   descargarArchivoJson(estructura, `Ejidos-EstructuraGeografica-${ObtenerFechaCompacta()}.json`);
-  showStatus('📥 Archivo de estructura descargado');
+  showStatus('📥 Archivo de estructura geográfica descargado');
 });
 
-// Lógica de lectura y Parsing
 document.getElementById('btnClickFile').addEventListener('click', () => {
   document.getElementById('fileInputImport').click();
 });
@@ -709,7 +765,7 @@ document.getElementById('fileInputImport').addEventListener('change', (e) => {
   reader.onload = function(evt) {
     try {
       const parsed = JSON.parse(evt.target.result);
-      if (parsed.formato === "ejidos_pwa_completa" || parsed.formato === "ejidos_estructura_geografica") {
+      if (parsed.formato === "solo_hogares" || parsed.formato === "estructura_geografica") {
         selectedImportData = parsed;
         importType = parsed.formato;
         document.getElementById('btnProcesarImportacion').style.display = 'block';
@@ -729,43 +785,43 @@ document.getElementById('fileInputImport').addEventListener('change', (e) => {
 document.getElementById('btnProcesarImportacion').addEventListener('click', async () => {
   if (!selectedImportData) return;
 
-  if (confirm('¿Confirmas la consolidación? Se añadirán los registros no existentes.')) {
+  if (confirm('¿Confirmas la consolidación? Se añadirán los registros no existentes sin borrar los actuales.')) {
     try {
-      // 1. Procesar Localidades primero
-      if (selectedImportData.localidades) {
-        for (let l of selectedImportData.localidades) {
-          let ex = await db.localidades.where('nombre').equalsIgnoreCase(l.nombre).first();
-          if (!ex) await db.localidades.add({ nombre: l.nombre });
+      if (importType === "estructura_geografica") {
+        if (selectedImportData.localidades) {
+          for (let l of selectedImportData.localidades) {
+            let ex = await db.localidades.where('nombre').equalsIgnoreCase(l.nombre).first();
+            if (!ex) await db.localidades.add({ nombre: l.nombre });
+          }
         }
-      }
-      // 2. Procesar Sectores
-      if (selectedImportData.sectores) {
-        for (let s of selectedImportData.sectores) {
-          let ex = await db.sectores.where({ localidadId: s.localidadId, nombre: s.nombre }).first();
-          if (!ex) await db.sectores.add({ localidadId: s.localidadId, nombre: s.nombre });
+        if (selectedImportData.sectores) {
+          for (let s of selectedImportData.sectores) {
+            let ex = await db.sectores.where({ localidadId: s.localidadId, nombre: s.nombre }).first();
+            if (!ex) await db.sectores.add({ localidadId: s.localidadId, nombre: s.nombre });
+          }
         }
-      }
-      // 3. Procesar Hogares si es el backup de Data Completa
-      if (importType === "ejidos_pwa_completa" && selectedImportData.hogares) {
+        showStatus(`⚡ Estructura geográfica integrada correctamente.`);
+      } 
+      else if (importType === "solo_hogares") {
         let countHogares = 0;
-        for (let h of selectedImportData.hogares) {
-          let ex = await db.hogares.where('cedula').equalsIgnoreCase(h.cedula).first();
-          if (!ex) {
-            await db.hogares.add(h);
-            countHogares++;
+        if (selectedImportData.hogares) {
+          for (let h of selectedImportData.hogares) {
+            let ex = await db.hogares.where('cedula').equalsIgnoreCase(h.cedula).first();
+            if (!ex) {
+              await db.hogares.add(h);
+              countHogares++;
+            }
           }
         }
         showStatus(`⚡ Procesado. Se añadieron ${countHogares} nuevos hogares.`);
-      } else {
-        showStatus(`⚡ Estructura geográfica integrada correctamente.`);
       }
 
-      // Reiniciar selectores de la UI
       document.getElementById('fileInputImport').value = '';
       document.getElementById('fileInfoLabel').innerText = 'Ningún archivo seleccionado';
       document.getElementById('btnProcesarImportacion').style.display = 'none';
       selectedImportData = null;
       actualizarDesplegablesLocalidades();
+      loadHogares();
 
     } catch (err) {
       console.error(err);
@@ -774,7 +830,6 @@ document.getElementById('btnProcesarImportacion').addEventListener('click', asyn
   }
 });
 
-// REQUERIMIENTO: Permitir resetear la data
 document.getElementById('btnResetearTodo').addEventListener('click', async () => {
   if (confirm('🚨 ¿ATENCIÓN? Esta acción borrará de manera PERMANENTE todo el padrón de hogares, sectores y localidades personalizadas. ¿Proceder?')) {
     if (confirm('🚨 Confirmación final: ¿Seguro que deseas reiniciar el almacenamiento local?')) {
@@ -782,7 +837,6 @@ document.getElementById('btnResetearTodo').addEventListener('click', async () =>
       await db.sectores.clear();
       await db.localidades.clear();
       
-      // Volver a inyectar las de fábrica por comodidad operativa
       await verificarYPrecargarLocalidades();
       await actualizarDesplegablesLocalidades();
       
@@ -792,7 +846,6 @@ document.getElementById('btnResetearTodo').addEventListener('click', async () =>
   }
 });
 
-// Utilidades Generales
 function ObtenerFechaCompacta() {
   const d = new Date();
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;

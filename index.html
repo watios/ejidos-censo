@@ -104,12 +104,18 @@
       <label for="hogarAnosConst">Años de Construcción de la Casa (*):</label>
       <input type="number" id="hogarAnosConst" min="0" value="0">
 
+      <label for="hogarCoordenadas">Coordenadas Google Earth (Opcional):</label>
+      <div style="display: flex; gap: 8px; margin-bottom: 12px;">
+        <input type="text" id="hogarCoordenadas" autocomplete="off" placeholder="Ej. 10°46'54.48&quot;N 63°59'56.41&quot;O" style="margin-bottom: 0; flex: 1;">
+        <button type="button" id="btnCapturarGPS" class="btn primary" style="padding: 0 12px; font-size: 0.9rem; white-space: nowrap;">📍 Capturar GPS</button>
+      </div>
+
       <label style="font-weight: bold; margin-top: 15px; display: block;">Foto de la Fachada de la Casa (Opcional):</label>
       <div style="margin: 10px 0; text-align: center;">
         <button type="button" class="btn primary" onclick="document.getElementById('hogarFotoInput').click()">📸 Tomar / Seleccionar Foto</button>
         <input type="file" id="hogarFotoInput" accept="image/*" capture="environment" style="display:none;">
         
-        <div id="hogarFotoPreviewContainer" style="display:none; margin-top:15px; position:relative; inline-block;">
+        <div id="hogarFotoPreviewContainer" style="display:none; margin-top:15px; position:relative; display: inline-block;">
           <img id="hogarFotoPreview" src="" alt="Vista previa" style="max-width:100%; max-height:200px; border-radius:8px; border:2px solid #1976D2; box-shadow:0 2px 5px rgba(0,0,0,0.2);">
           <br>
           <button type="button" id="btnQuitarFoto" class="btn" style="background-color:#d32f2f; color:white; padding:4px 10px; font-size:0.8rem; margin-top:5px;">🗑️ Quitar Foto</button>
@@ -193,14 +199,14 @@
   <div id="sec-datos" class="section-content">
     <div class="card">
       <h3>📥 Exportar Archivos de Respaldo (.JSON)</h3>
-      <p class="section-desc">Descarga los repositorios locales a tu dispositivo para salvaguardar la información.</p>
-      <button id="btnExpDataCompleta" class="btn primary">📦 Descargar Data Completa Global</button>
-      <button id="btnExpLocSectores" class="btn success">📍 Descargar Estructura (Localidades + Sectores)</button>
+      <p class="section-desc">Selecciona el conjunto de datos específico que deseas salvaguardar de manera independiente.</p>
+      <button id="btnExpSoloHogares" class="btn primary" style="margin-bottom: 10px; display: block; width: 100%;">📝 Descargar Solo Padrón de Hogares</button>
+      <button id="btnExpLocSectores" class="btn success" style="display: block; width: 100%;">📍 Descargar Estructura (Localidades + Sectores)</button>
     </div>
 
     <div class="card">
-      <h3>📤 Cargar / Importar Repositorio (.JSON)</h3>
-      <p class="section-desc">Selecciona un archivo compatible previamente generado por esta aplicación.</p>
+      <h3>📤 Importar Copias de Seguridad (.JSON)</h3>
+      <p class="section-desc">Sube cualquier archivo JSON de respaldo generado por esta aplicación (Hogares o Estructuras).</p>
       <button id="btnClickFile" class="btn secondary">📄 Seleccionar Archivo JSON</button>
       <input type="file" id="fileInputImport" accept=".json" style="display:none;">
       <div id="fileInfoLabel" style="margin: 10px 0; font-size:0.9rem; font-weight:600; text-align:center; color:#333;">Ningún archivo seleccionado</div>
