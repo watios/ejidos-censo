@@ -5,15 +5,27 @@ const db = new Dexie('ControlEjidosDB');
 db.version(1).stores({
   localidades: '++id, nombre',
   sectores: '++id, localidadId, nombre',
-  hogares: '++id, cedula, nombre, localidadId, sectorId, costera, hijos'
+  hogares: '++id, cedula, nombre, localidadId, sectorId, costera, hijos' 
 });
 
 let activeSearchQuery = '';
 let selectedImportData = null;
 let importType = ''; 
-let deferredPrompt = null; // Captura el evento de instalación nativo (Windows/Móvil)
+let currentFotoBase64 = ''; 
 
 const localidadesPredefinidas = ["San Pedro", "Bichar", "Guinima", "Amparo", "Guamache", "La Uva", "Zulica"];
+
+const sectoresSanPedro = [
+  "El Cardon",
+  "Valle Seco",
+  "EL Boton",
+  "Urb. Hugo Chavez (Aerepuerto)",
+  "Urica",
+  "Punta Honda",
+  "El Progreso",
+  "El Tamarindo",
+  "El Olivo"
+];
 
 document.addEventListener('DOMContentLoaded', async () => {
   await verificarYPrecargarLocalidades();
@@ -21,90 +33,90 @@ document.addEventListener('DOMContentLoaded', async () => {
   loadHogares();
   loadLocalidadesUI();
   loadSectoresUI();
-  inicializarManejadorGPS();
-  inicializarInstalacionPWA(); // Inicializa el detector de instalación para Windows/Móviles
+  inicializarManejadorFoto();
+  inicializarManejadorGps();
+  inicializarManejadorCedula(); 
 });
 
 async function verificarYPrecargarLocalidades() {
   const count = await db.localidades.count();
   if (count === 0) {
+    // 1. Insertar localidades base
     for (let loc of localidadesPredefinidas) {
       await db.localidades.add({ nombre: loc.trim() });
     }
   }
-}
 
-// =========================================================================
-// GPS DECIMAL A GRADOS, MINUTOS Y SEGUNDOS (GMS)
-// =========================================================================
-function convertirDecimalAGMS(lat, lng) {
-  function formatComponent(val, isLat) {
-    const absVal = Math.abs(val);
-    const grados = Math.floor(absVal);
-    const minutosFloat = (absVal - grados) * 60;
-    const minutos = Math.floor(minutosFloat);
-    const segundos = ((minutosFloat - minutos) * 60).toFixed(2);
+  // 2. Verificar y asociar los sectores predefinidos de San Pedro
+  const sanPedroLoc = await db.localidades.where('nombre').equalsIgnoreCase('San Pedro').first();
+  if (sanPedroLoc) {
+    const sectoresExistentes = await db.sectores.where('localidadId').equals(sanPedroLoc.id).toArray();
     
-    let direccion = '';
-    if (isLat) {
-      direccion = val >= 0 ? 'N' : 'S';
-    } else {
-      direccion = val >= 0 ? 'E' : 'O';
+    for (let secNombre of sectoresSanPedro) {
+      const existe = sectoresExistentes.some(s => s.nombre.toLowerCase() === secNombre.toLowerCase().trim());
+      if (!existe) {
+        await db.sectores.add({
+          localidadId: sanPedroLoc.id,
+          nombre: secNombre.trim()
+        });
+      }
     }
-    return `${grados}°${minutos}'${segundos}"${direccion}`;
   }
-  return `${formatComponent(lat, true)} ${formatComponent(lng, false)}`;
-}
-
-function inicializarManejadorGPS() {
-  const btnGps = document.getElementById('btnCapturarGPS');
-  const inputCoords = document.getElementById('hogarCoordenadas');
-
-  btnGps.addEventListener('click', () => {
-    if (!navigator.geolocation) {
-      showStatus('❌ Su dispositivo no soporta geolocalización nativa.');
-      return;
-    }
-    btnGps.innerText = '📡 Buscando...';
-    btnGps.disabled = true;
-
-    navigator.geolocation.getCurrentPosition(
-      (position) => {
-        const lat = position.coords.latitude;
-        const lng = position.coords.longitude;
-        inputCoords.value = convertirDecimalAGMS(lat, lng);
-        btnGps.innerText = '📍 Capturar GPS';
-        btnGps.disabled = false;
-        showStatus('✅ Ubicación capturada con éxito.');
-      },
-      (error) => {
-        btnGps.innerText = '📍 Capturar GPS';
-        btnGps.disabled = false;
-        showStatus('❌ Active el GPS y conceda los permisos del equipo.');
-      },
-      { enableHighAccuracy: true, timeout: 15000, maximumAge: 0 }
-    );
-  });
 }
 
 // =========================================================================
-// ENRUTAMIENTO Y MENÚ
+// 1.5 FUNCIONES DE FORMATEO Y MÁSCARA PARA CÉDULA DE IDENTIDAD
+// =========================================================================
+function formatearCedula(valor) {
+  if (!valor) return '';
+  const numeros = valor.toString().replace(/\D/g, '');
+  return numeros.replace(/\B(?=(\d{3})+(?!\d))/g, ".");
+}
+
+function limpiarCedula(valor) {
+  if (!valor) return '';
+  return valor.toString().replace(/\D/g, '');
+}
+
+function inicializarManejadorCedula() {
+  const inputCedula = document.getElementById('hogarCedula');
+  if (inputCedula) {
+    inputCedula.addEventListener('input', (e) => {
+      const posicionCursor = e.target.selectionStart;
+      const valorOriginal = e.target.value;
+      const valorFormateado = formatearCedula(valorOriginal);
+      
+      e.target.value = valorFormateado;
+      
+      if (valorFormateado.length > valorOriginal.length && posicionCursor === valorOriginal.length) {
+        e.target.setSelectionRange(valorFormateado.length, valorFormateado.length);
+      }
+    });
+  }
+}
+
+// =========================================================================
+// 2. SISTEMA NATIVO DE ENRUTAMIENTO Y MENÚ COMPARTIDO
 // =========================================================================
 document.querySelectorAll('.menu-item').forEach(item => {
   item.addEventListener('click', () => {
+    if (item.id === 'menu-item-update' || item.id === 'menu-item-install') return;
+
     const targetId = item.dataset.target;
     if (!targetId) return;
 
     const label = item.querySelector('.menu-label').innerText;
+    
     document.getElementById('main-menu').classList.remove('active');
     document.getElementById(targetId).classList.add('active');
+    
     document.getElementById('btnBackToMenu').style.visibility = 'visible';
     document.getElementById('appTitle').innerText = label;
 
     if (targetId === 'sec-hogares') { loadHogares(); resetFormHogar(); }
     if (targetId === 'sec-localidades') { loadLocalidadesUI(); resetFormLoc(); }
     if (targetId === 'sec-sectores') { loadSectoresUI(); resetFormSec(); }
-    if (targetId === 'sec-reportes') { document.getElementById('cardResultadosReporte').style.display = 'none'; }
+    if (targetId === 'sec-reportes') { limpiarInterfazReportes(); }
     actualizarDesplegablesLocalidades();
   });
 });
@@ -124,7 +136,7 @@ function showStatus(message, duration = 3000) {
 }
 
 // =========================================================================
-// DESPLEGABLES DINÁMICOS
+// 3. REACTIVIDAD DINÁMICA: LOCALIDAD ➡️ SECTOR
 // =========================================================================
 async function actualizarDesplegablesLocalidades() {
   const locs = await db.localidades.orderBy('nombre').toArray();
@@ -137,13 +149,14 @@ async function actualizarDesplegablesLocalidades() {
 }
 
 document.getElementById('hogarLocalidad').addEventListener('change', async (e) => {
-  await actualizarDesplegableSectores(parseInt(e.target.value), 'hogarSector', 'Seleccione un Sector...');
+  const locId = parseInt(e.target.value);
+  await actualizarDesplegableSectores(locId, 'hogarSector', 'Seleccione un Sector...');
 });
 
 document.getElementById('repLocalidad').addEventListener('change', async (e) => {
   const locId = parseInt(e.target.value);
   if (!locId) {
-    document.getElementById('repSector').innerHTML = '<option value="">Seleccione una Localidad primero...</option>';
+    document.getElementById('hogarSector').innerHTML = '<option value="">Seleccione una Localidad primero...</option>';
     return;
   }
   await actualizarDesplegableSectores(locId, 'repSector', '-- Todos los Sectores --');
@@ -165,31 +178,181 @@ async function actualizarDesplegableSectores(localidadId, targetSelectId, defaul
 }
 
 // =========================================================================
-// GESTIÓN DEL PADRÓN DE HOGARES
+// 3.5 ALGORITMO DE OPTIMIZACIÓN Y COMPRESIÓN DE FOTOS CASAS (< 70KB)
+// =========================================================================
+function inicializarManejadorFoto() {
+  const fotoInput = document.getElementById('hogarFotoInput');
+  const btnQuitar = document.getElementById('btnQuitarFoto');
+
+  fotoInput.addEventListener('change', (e) => {
+    const file = e.target.files[0];
+    if (!file) return;
+
+    showStatus('⚙️ Optimizando peso de la imagen...');
+    const reader = new FileReader();
+    reader.onload = function(event) {
+      const img = new Image();
+      img.onload = function() {
+        let width = img.width;
+        let height = img.height;
+        const maxDimension = 1024;
+
+        if (width > maxDimension || height > maxDimension) {
+          if (width > height) {
+            height *= maxDimension / width;
+            width = maxDimension;
+          } else {
+            width *= maxDimension / height;
+            height = maxDimension;
+          }
+        }
+
+        const canvas = document.createElement('canvas');
+        canvas.width = width;
+        canvas.height = height;
+        const ctx = canvas.getContext('2d');
+        ctx.drawImage(img, 0, 0, width, height);
+
+        let calidad = 0.85;
+        let base64Result = '';
+        let flagCompreso = false;
+
+        while (calidad > 0.1) {
+          base64Result = canvas.toDataURL('image/jpeg', calidad);
+          const stringLength = base64Result.length - 'data:image/jpeg;base64,'.length;
+          const sizeInBytes = stringLength * (3 / 4);
+          
+          if (sizeInBytes <= 70000) { 
+            flagCompreso = true;
+            const sizeInKb = (sizeInBytes / 1024).toFixed(1);
+            document.getElementById('hogarFotoStatus').innerText = `Foto optimizada con éxito (${sizeInKb} KB)`;
+            break;
+          }
+          calidad -= 0.1; 
+        }
+
+        if (!flagCompreso) {
+          canvas.width = width * 0.6;
+          canvas.height = height * 0.6;
+          ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+          base64Result = canvas.toDataURL('image/jpeg', 0.4);
+          document.getElementById('hogarFotoStatus').innerText = `Foto reajustada bajo límite de peso.`;
+        }
+
+        currentFotoBase64 = base64Result;
+        mostrarVistaPreviaFoto(currentFotoBase64);
+      };
+      img.src = event.target.result;
+    };
+    reader.readAsDataURL(file);
+  });
+
+  btnQuitar.addEventListener('click', () => {
+    currentFotoBase64 = '';
+    fotoInput.value = '';
+    document.getElementById('hogarFotoPreviewContainer').style.display = 'none';
+    document.getElementById('hogarFotoPreview').src = '';
+    document.getElementById('hogarFotoStatus').innerText = 'Sin foto cargada';
+  });
+}
+
+function mostrarVistaPreviaFoto(base64Data) {
+  const container = document.getElementById('hogarFotoPreviewContainer');
+  const imgElement = document.getElementById('hogarFotoPreview');
+  if (base64Data) {
+    imgElement.src = base64Data;
+    container.style.display = 'block';
+  } else {
+    container.style.display = 'none';
+    imgElement.src = '';
+  }
+}
+
+// =========================================================================
+// 3.6 TRADUCTOR DE COORDENADAS DECIMALES A FORMATO DMS (PWA GEOLOCALIZACIÓN)
+// =========================================================================
+function inicializarManejadorGps() {
+  document.getElementById('btnCapturarGps').addEventListener('click', () => {
+    if (!navigator.geolocation) {
+      showStatus('❌ Tu navegador no soporta geolocalización.');
+      return;
+    }
+    showStatus('🛰️ Conectando con satélites GPS...');
+    navigator.geolocation.getCurrentPosition(
+      (position) => {
+        const lat = position.coords.latitude;
+        const lng = position.coords.longitude;
+        
+        const latDms = convertirDecimalAGpsDms(lat, true);
+        const lngDms = convertirDecimalAGpsDms(lng, false);
+        
+        document.getElementById('hogarGps').value = `${latDms} ${lngDms}`;
+        showStatus('✅ Coordenadas GPS fijadas con éxito.');
+      },
+      (error) => {
+        console.error(error);
+        showStatus('⚠️ Permiso denegado o señal GPS muy débil.');
+      },
+      { enableHighAccuracy: true, timeout: 10000, maximumAge: 0 }
+    );
+  });
+}
+
+function convertirDecimalAGpsDms(decimal, esLatitud) {
+  const hemisferio = esLatitud 
+    ? (decimal >= 0 ? 'N' : 'S') 
+    : (decimal >= 0 ? 'E' : 'O');
+  
+  const absVal = Math.abs(decimal);
+  const grados = Math.floor(absVal);
+  const minutosDecimal = (absVal - grados) * 60;
+  const minutos = Math.floor(minutosDecimal);
+  const segundos = ((minutosDecimal - minutos) * 60).toFixed(2);
+  
+  return `${grados}°${minutos}'${segundos}"${hemisferio}`;
+}
+
+// =========================================================================
+// 4. MÓDULO: CRUD Y VALIDACIÓN DE HOGARES
 // =========================================================================
 async function loadHogares() {
   let list = await db.hogares.toArray();
   const container = document.getElementById('hogaresList');
+  
   if (list.length === 0) {
     container.innerHTML = '<p style="text-align:center;color:#666;">No hay hogares registrados en este dispositivo.</p>';
     return;
   }
+
   if (activeSearchQuery.trim() !== '') {
     const q = activeSearchQuery.toLowerCase().trim();
-    list = list.filter(h => h.nombre.toLowerCase().includes(q) || h.cedula.toLowerCase().includes(q));
+    list = list.filter(h => h.nombre.toLowerCase().includes(q) || h.cedula.toLowerCase().includes(q.replace(/\./g, '')));
   }
+
   const mapLoc = new Map((await db.localidades.toArray()).map(l => [l.id, l.nombre]));
   const mapSec = new Map((await db.sectores.toArray()).map(s => [s.id, s.nombre]));
 
   container.innerHTML = list.map(h => `
-    <div class="person-item">
+    <div class="person-item" style="display: flex; flex-wrap: wrap; gap: 12px; align-items: center;">
+      ${h.foto ? `
+        <div style="flex: 0 0 70px; text-align: center;">
+          <img src="${h.foto}" style="width: 70px; height: 70px; object-fit: cover; border-radius: 6px; border: 1px solid #ccc;" alt="Miniatura casa">
+        </div>
+      ` : `
+        <div style="flex: 0 0 70px; height: 70px; background: #e0e0e0; border-radius: 6px; display: flex; align-items: center; justify-content: center; font-size: 1.5rem; color: #9e9e9e;">
+          🏠
+        </div>
+      `}
       <div class="person-info" style="flex: 1; min-width: 200px;">
         <div class="nombre">${escapeHtml(h.nombre)}</div>
-        <div class="cedula">C.I: <strong>${escapeHtml(h.cedula)}</strong> | Casa: ${escapeHtml(h.casaNo) || 'N/A'}</div>
-        <div class="cedula" style="color:#1976D2; font-weight:500;">📍 ${escapeHtml(mapLoc.get(h.localidadId) || 'Indefinida')} - 🧭 ${escapeHtml(mapSec.get(h.sectorId) || 'Sin Sector')}</div>
-        ${h.coordenadas ? `<div class="cedula" style="color:#2E7D32;">🌐 Coords: <code>${escapeHtml(h.coordenadas)}</code></div>` : ''}
+        <div class="cedula">C.I: <strong>${escapeHtml(formatearCedula(h.cedula))}</strong> | Casa: ${escapeHtml(h.casaNo) || 'N/A'}</div>
+        <div class="cedula" style="color:#1976D2; font-weight:500;">
+          📍 ${escapeHtml(mapLoc.get(h.localidadId) || 'Indefinida')} - 🧭 ${escapeHtml(mapSec.get(h.sectorId) || 'Sin Sector')}
+        </div>
+        ${h.gps ? `<div class="cedula" style="color:#009688;">🛰️ GPS: <strong>${escapeHtml(h.gps)}</strong></div>` : ''}
+        <div class="cedula">Hijos: ${h.hijos} | Costa: ${h.costera} | Inst: ${h.organizacion}</div>
       </div>
-      <div class="action-buttons">
+      <div class="action-buttons" style="flex: 0 0 auto;">
         <button class="btn-action" onclick="editarHogar(${h.id})">Editar</button>
         <button class="btn-action delete" onclick="eliminarHogar(${h.id})">Eliminar</button>
       </div>
@@ -197,207 +360,590 @@ async function loadHogares() {
   `).join('');
 }
 
-document.getElementById('searchHogarInput').addEventListener('input', (e) => { activeSearchQuery = e.target.value; loadHogares(); });
+document.getElementById('searchHogarInput').addEventListener('input', (e) => {
+  activeSearchQuery = e.target.value;
+  loadHogares();
+});
 
 document.getElementById('btnGuardarHogar').addEventListener('click', async () => {
   const idVal = document.getElementById('hogarId').value;
   const locId = parseInt(document.getElementById('hogarLocalidad').value);
   const secId = parseInt(document.getElementById('hogarSector').value);
   const nombre = document.getElementById('hogarNombre').value.trim();
-  const cedula = document.getElementById('hogarCedula').value.trim();
-  const telf = document.getElementById('hogarTelefono').value.trim();
+  
+  const cedulaRaw = document.getElementById('hogarCedula').value.trim();
+  const cedula = limpiarCedula(cedulaRaw);
 
-  if (!locId || !secId || !nombre || !cedula || !telf) { showStatus('⚠️ Por favor completa todos los campos requeridos (*)'); return; }
+  const nacionalidad = document.getElementById('hogarNacionalidad').value;
+  const rif = document.getElementById('hogarRif').value.trim();
+  const correo = document.getElementById('hogarCorreo').value.trim();
+  const telefono = document.getElementById('hogarTelefono').value.trim();
+  const casaNo = document.getElementById('hogarCasaNo').value.trim();
+  const gps = document.getElementById('hogarGps').value.trim(); 
+  const organizacion = document.getElementById('hogarOrganizacion').value;
+  const costera = document.getElementById('hogarCostera').value;
+  const hijos = parseInt(document.getElementById('hogarHijos').value) || 0;
+  const pareja = document.getElementById('hogarPareja').value;
+  const anosConst = parseInt(document.getElementById('hogarAnosConst').value) || 0;
+
+  if (!locId || !secId || !nombre || !cedula || !telefono) {
+    showStatus('⚠️ Por favor completa todos los campos requeridos (*)');
+    return;
+  }
 
   const idAct = idVal ? parseInt(idVal) : null;
   const existeCedula = await db.hogares.where('cedula').equalsIgnoreCase(cedula).first();
-  if (existeCedula && (!idAct || existeCedula.id !== idAct)) { showStatus('🚨 Error: Esta Cédula ya está registrada.'); return; }
+  if (existeCedula && (!idAct || existeCedula.id !== idAct)) {
+    showStatus('🚨 Error: Esta Cédula de Identidad ya está registrada en el padrón.');
+    return;
+  }
 
   const datosHogar = {
-    localidadId: locId, sectorId: secId, nombre, cedula, nacionalidad: document.getElementById('hogarNacionalidad').value,
-    rif: document.getElementById('hogarRif').value.trim(), correo: document.getElementById('hogarCorreo').value.trim(), telefono: telf, 
-    casaNo: document.getElementById('hogarCasaNo').value.trim(), organizacion: document.getElementById('hogarOrganizacion').value, 
-    costera: document.getElementById('hogarCostera').value, hijos: parseInt(document.getElementById('hogarHijos').value) || 0, 
-    pareja: document.getElementById('hogarPareja').value, anosConst: parseInt(document.getElementById('hogarAnosConst').value) || 0,
-    coordenadas: document.getElementById('hogarCoordenadas').value.trim()
+    localidadId: locId, sectorId: secId, nombre, cedula, nacionalidad,
+    rif, correo, telefono, casaNo, gps, organizacion, costera, hijos, pareja, anosConst,
+    foto: currentFotoBase64 
   };
 
-  if (idAct) { await db.hogares.update(idAct, datosHogar); showStatus('🔄 Registro actualizado'); } 
-  else { await db.hogares.add(datosHogar); showStatus('✅ Registro guardado'); }
-  resetFormHogar(); loadHogares();
+  if (idAct) {
+    await db.hogares.update(idAct, datosHogar);
+    showStatus('🔄 Datos del hogar actualizados con éxito');
+  } else {
+    await db.hogares.add(datosHogar);
+    showStatus('✅ Nuevo hogar registrado en el padrón');
+  }
+  resetFormHogar();
+  loadHogares();
 });
 
 async function editarHogar(id) {
-  const h = await db.hogares.get(id); if (!h) return;
+  const h = await db.hogares.get(id);
+  if (!h) return;
   document.getElementById('hogarId').value = h.id;
   document.getElementById('hogarLocalidad').value = h.localidadId;
-  await actualizar遊esplegableSectores(h.localidadId, 'hogarSector', 'Seleccione un Sector...');
+  await actualizarDesplegableSectores(h.localidadId, 'hogarSector', 'Seleccione un Sector...');
   document.getElementById('hogarSector').value = h.sectorId;
   document.getElementById('hogarNombre').value = h.nombre;
-  document.getElementById('hogarCedula').value = h.cedula;
+  
+  document.getElementById('hogarCedula').value = formatearCedula(h.cedula);
+  
+  document.getElementById('hogarNacionalidad').value = h.nacionalidad;
+  document.getElementById('hogarRif').value = h.rif || '';
+  document.getElementById('hogarCorreo').value = h.correo || '';
   document.getElementById('hogarTelefono').value = h.telefono;
-  document.getElementById('hogarCoordenadas').value = h.coordenadas || '';
+  document.getElementById('hogarCasaNo').value = h.casaNo || '';
+  document.getElementById('hogarGps').value = h.gps || ''; 
+  document.getElementById('hogarOrganizacion').value = h.organizacion;
+  document.getElementById('hogarCostera').value = h.costera;
+  document.getElementById('hogarHijos').value = h.hijos;
+  document.getElementById('hogarPareja').value = h.pareja;
+  document.getElementById('hogarAnosConst').value = h.anosConst;
+  
+  currentFotoBase64 = h.foto || '';
+  if (currentFotoBase64) {
+    mostrarVistaPreviaFoto(currentFotoBase64);
+    document.getElementById('hogarFotoStatus').innerText = 'Foto guardada cargada. Puede cambiarla o eliminarla.';
+  } else {
+    document.getElementById('hogarFotoPreviewContainer').style.display = 'none';
+    document.getElementById('hogarFotoStatus').innerText = 'Sin foto cargada';
+  }
   document.getElementById('btnCancelarHogarEdicion').style.display = 'block';
   window.scrollTo({ top: 0, behavior: 'smooth' });
 }
-document.getElementById('btnCancelarHogarEdicion').addEventListener('click', resetFormHogar);
+
+document.getElementById('btnCancelarHogarEdicion').addEventListener('click', () => { resetFormHogar(); });
 
 function resetFormHogar() {
-  document.getElementById('hogarId').value = ''; document.getElementById('hogarNombre').value = '';
-  document.getElementById('hogarCedula').value = ''; document.getElementById('hogarTelefono').value = '';
-  document.getElementById('hogarCoordenadas').value = '';
+  document.getElementById('hogarId').value = '';
+  document.getElementById('hogarLocalidad').value = '';
   document.getElementById('hogarSector').innerHTML = '<option value="">Seleccione una Localidad primero...</option>';
+  document.getElementById('hogarNombre').value = '';
+  document.getElementById('hogarCedula').value = '';
+  document.getElementById('hogarRif').value = '';
+  document.getElementById('hogarCorreo').value = '';
+  document.getElementById('hogarTelefono').value = '';
+  document.getElementById('hogarCasaNo').value = '';
+  document.getElementById('hogarGps').value = ''; 
+  document.getElementById('hogarOrganizacion').value = 'Ninguna';
+  document.getElementById('hogarCostera').value = 'No';
+  document.getElementById('hogarHijos').value = '0';
+  document.getElementById('hogarPareja').value = 'No';
+  document.getElementById('hogarAnosConst').value = '0';
+  currentFotoBase64 = '';
+  document.getElementById('hogarFotoInput').value = '';
+  document.getElementById('hogarFotoPreviewContainer').style.display = 'none';
+  document.getElementById('hogarFotoStatus').innerText = 'Sin foto cargada';
   document.getElementById('btnCancelarHogarEdicion').style.display = 'none';
 }
 
-async function eliminarHogar(id) { if (confirm('¿Eliminar este registro?')) { await db.hogares.delete(id); loadHogares(); } }
+async function eliminarHogar(id) {
+  if (confirm('🚨 ¿Seguro que deseas eliminar este registro de hogar del padrón local?')) {
+    await db.hogares.delete(id);
+    showStatus('🗑️ Registro eliminado.');
+    loadHogares();
+  }
+}
 
 // =========================================================================
-// LOCALIDADES Y SECTORES (MANTENIMIENTO)
+// 5. MÓDULO: MANTENEDOR CRUD DE LOCALIDADES
 // =========================================================================
 async function loadLocalidadesUI() {
   const locs = await db.localidades.orderBy('nombre').toArray();
-  document.getElementById('localidadesList').innerHTML = locs.map(l => `
-    <div class="person-item"><div class="person-info"><div class="nombre">${escapeHtml(l.nombre)}</div></div>
-    <div class="action-buttons"><button class="btn-action delete" onclick="eliminarLoc(${l.id})">Eliminar</button></div></div>
+  const container = document.getElementById('localidadesList');
+  if (locs.length === 0) {
+    container.innerHTML = '<p>No hay localidades customizadas.</p>';
+    return;
+  }
+  container.innerHTML = locs.map(l => `
+    <div class="person-item">
+      <div class="person-info"><div class="nombre">📍 ${escapeHtml(l.nombre)}</div></div>
+      <div class="action-buttons">
+        <button class="btn-action" onclick="editarLoc(${l.id}, '${escapeHtml(l.nombre)}')">Editar</button>
+        <button class="btn-action delete" onclick="eliminarLoc(${l.id})">Eliminar</button>
+      </div>
+    </div>
   `).join('');
 }
-document.getElementById('btnGuardarLoc').addEventListener('click', async () => {
-  const name = document.getElementById('locNombre').value.trim(); if (!name) return;
-  await db.localidades.add({ nombre: name }); document.getElementById('locNombre').value = ''; loadLocalidadesUI();
-});
-async function eliminarLoc(id) { if (confirm('¿Eliminar localidad?')) { await db.sectores.where('localidadId').equals(id).delete(); await db.localidades.delete(id); loadLocalidadesUI(); } }
 
+document.getElementById('btnGuardarLoc').addEventListener('click', async () => {
+  const idVal = document.getElementById('locId').value;
+  const nombre = document.getElementById('locNombre').value.trim();
+  if (!nombre) return;
+
+  if (idVal) {
+    await db.localidades.update(parseInt(idVal), { nombre });
+    showStatus('🔄 Localidad actualizada');
+  } else {
+    await db.localidades.add({ nombre });
+    showStatus('✅ Localidad añadida');
+  }
+  resetFormLoc(); loadLocalidadesUI(); actualizarDesplegablesLocalidades();
+});
+
+function editarLoc(id, nombre) {
+  document.getElementById('locId').value = id;
+  document.getElementById('locNombre').value = nombre;
+  document.getElementById('btnCancelarLocEdicion').style.display = 'block';
+}
+document.getElementById('btnCancelarLocEdicion').addEventListener('click', () => { resetFormLoc(); });
+function resetFormLoc() {
+  document.getElementById('locId').value = '';
+  document.getElementById('locNombre').value = '';
+  document.getElementById('btnCancelarLocEdicion').style.display = 'none';
+}
+
+async function eliminarLoc(id) {
+  const vinculados = await db.hogares.where('localidadId').equals(id).count();
+  if (vinculados > 0) {
+    showStatus(`🚨 Imposible eliminar: existen ${vinculados} hogares asociados a esta localidad.`);
+    return;
+  }
+  if (confirm('¿Eliminar esta localidad permanentemente?')) {
+    await db.localidades.delete(id);
+    showStatus('🗑️ Localidad removida.');
+    loadLocalidadesUI(); actualizarDesplegablesLocalidades();
+  }
+}
+
+// =========================================================================
+// 6. MÓDULO: MANTENEDOR CRUD DE SECTORES
+// =========================================================================
 async function loadSectoresUI() {
   const secs = await db.sectores.toArray();
   const mapLoc = new Map((await db.localidades.toArray()).map(l => [l.id, l.nombre]));
-  document.getElementById('sectoresList').innerHTML = secs.map(s => `
-    <div class="person-item"><div class="person-info"><div class="nombre">${escapeHtml(s.nombre)}</div><div class="cedula">Localidad: ${escapeHtml(mapLoc.get(s.localidadId))}</div></div>
-    <div class="action-buttons"><button class="btn-action delete" onclick="eliminarSec(${s.id})">Eliminar</button></div></div>
+  const container = document.getElementById('sectoresList');
+  
+  if (secs.length === 0) {
+    container.innerHTML = '<p>No hay sectores asignados.</p>';
+    return;
+  }
+  container.innerHTML = secs.map(s => `
+    <div class="person-item">
+      <div class="person-info">
+        <div class="nombre">🧭 ${escapeHtml(s.nombre)}</div>
+        <div class="cedula">Adscrito a: <strong>${escapeHtml(mapLoc.get(s.localidadId) || 'Desconocido')}</strong></div>
+      </div>
+      <div class="action-buttons">
+        <button class="btn-action" onclick="editarSec(${s.id}, ${s.localidadId}, '${escapeHtml(s.nombre)}')">Editar</button>
+        <button class="btn-action delete" onclick="eliminarSec(${s.id})">Eliminar</button>
+      </div>
+    </div>
   `).join('');
 }
+
 document.getElementById('btnGuardarSec').addEventListener('click', async () => {
+  const idVal = document.getElementById('secId').value;
   const locId = parseInt(document.getElementById('secLocalidadBelongs').value);
-  const name = document.getElementById('secNombre').value.trim();
-  if (locId && name) { await db.sectores.add({ localidadId: locId, nombre: name }); document.getElementById('secNombre').value = ''; loadSectoresUI(); }
+  const nombre = document.getElementById('secNombre').value.trim();
+
+  if (!locId || !nombre) { showStatus('⚠️ Completa los campos obligatorios'); return; }
+
+  if (idVal) {
+    await db.sectores.update(parseInt(idVal), { localidadId: locId, nombre });
+    showStatus('🔄 Sector actualizado');
+  } else {
+    await db.sectores.add({ localidadId: locId, nombre });
+    showStatus('✅ Sector guardado');
+  }
+  resetFormSec(); loadSectoresUI();
 });
-async function eliminarSec(id) { if (confirm('¿Eliminar sector?')) { await db.sectores.delete(id); loadSectoresUI(); } }
+
+function editarSec(id, locId, nombre) {
+  document.getElementById('secId').value = id;
+  document.getElementById('secLocalidadBelongs').value = locId;
+  document.getElementById('secNombre').value = nombre;
+  document.getElementById('btnCancelarSecEdicion').style.display = 'block';
+}
+document.getElementById('btnCancelarSecEdicion').addEventListener('click', () => { resetFormSec(); });
+function resetFormSec() {
+  document.getElementById('secId').value = '';
+  document.getElementById('secLocalidadBelongs').value = '';
+  document.getElementById('secNombre').value = '';
+  document.getElementById('btnCancelarSecEdicion').style.display = 'none';
+}
+
+async function eliminarSec(id) {
+  const vinculados = await db.hogares.where('sectorId').equals(id).count();
+  if (vinculados > 0) {
+    showStatus(`🚨 Bloqueado: hay ${vinculados} hogares habitando este sector.`);
+    return;
+  }
+  if (confirm('¿Eliminar sector?')) {
+    await db.sectores.delete(id);
+    showStatus('🗑️ Sector removido');
+    loadSectoresUI();
+  }
+}
 
 // =========================================================================
-// REPORTES E IMPORTACIONES JSON
+// 7. MOTOR DE REPORTES CONSOLIDADO INTEGRADO
 // =========================================================================
-document.getElementById('repTipo').addEventListener('change', (e) => {
-  const tipo = e.target.value;
-  document.getElementById('divRepFiltroLocalidad').style.display = (tipo === 'localidad' || tipo === 'sector') ? 'block' : 'none';
-  document.getElementById('divRepFiltroSector').style.display = (tipo === 'sector') ? 'block' : 'none';
-});
+function limpiarInterfazReportes() {
+  document.getElementById('repLocalidad').value = '';
+  document.getElementById('repSector').innerHTML = '<option value="">-- Todos los Sectores --</option>';
+  document.getElementById('repCostera').value = 'TODOS';
+  document.getElementById('repCarga').value = 'TODOS';
+  document.getElementById('reportTableBody').innerHTML = `<tr><td colspan="7" style="text-align:center; color:#999; padding:20px;">Utiliza los filtros superiores para renderizar la sábana de datos.</td></tr>`;
+  document.getElementById('statTotalHogares').innerText = '0';
+  document.getElementById('statTotalHijos').innerText = '0';
+  document.getElementById('statTotalCostera').innerText = '0';
+}
 
-document.getElementById('btnGenerarReporte').addEventListener('click', async () => {
-  const tipo = document.getElementById('repTipo').value;
-  const locFiltro = parseInt(document.getElementById('repLocalidad').value);
-  const secFiltro = parseInt(document.getElementById('repSector').value);
-  let data = await db.hogares.toArray();
+document.getElementById('btnFiltrarReporte').addEventListener('click', async () => {
+  const locId = parseInt(document.getElementById('repLocalidad').value);
+  const secId = parseInt(document.getElementById('repSector').value);
+  const costeraFilter = document.getElementById('repCostera').value;
+  const cargaFilter = document.getElementById('repCarga').value;
+
+  let dataset = await db.hogares.toArray();
+
+  if (locId) dataset = dataset.filter(h => h.localidadId === locId);
+  if (secId) dataset = dataset.filter(h => h.sectorId === secId);
+  if (costeraFilter !== 'TODOS') dataset = dataset.filter(h => h.costera === costeraFilter);
+  if (cargaFilter === 'CON_HIJOS') dataset = dataset.filter(h => h.hijos > 0);
+  if (cargaFilter === 'SIN_HIJOS') dataset = dataset.filter(h => h.hijos === 0);
+
   const mapLoc = new Map((await db.localidades.toArray()).map(l => [l.id, l.nombre]));
   const mapSec = new Map((await db.sectores.toArray()).map(s => [s.id, s.nombre]));
 
-  if (tipo === 'localidad' && locFiltro) data = data.filter(h => h.localidadId === locFiltro);
-  if (tipo === 'sector' && secFiltro) data = data.filter(h => h.sectorId === secFiltro);
-  if (tipo === 'costera') data = data.filter(h => h.costera === 'Si');
-  if (tipo === 'hijos') data = data.filter(h => h.hijos > 0);
+  let cChicos = 0;
+  let cCosta = 0;
 
-  document.getElementById('reporteContenidoTabla').innerHTML = `
-    <table class="report-table">
-      <thead><tr><th>Cédula</th><th>Nombre</th><th>Ubicación</th><th>Coordenadas GMS</th></tr></thead>
-      <tbody>${data.map(h => `<tr><td>${escapeHtml(h.cedula)}</td><td>${escapeHtml(h.nombre)}</td><td>${escapeHtml(mapLoc.get(h.localidadId))}<br>${escapeHtml(mapSec.get(h.sectorId))}</td><td><code>${escapeHtml(h.coordenadas) || 'N/A'}</code></td></tr>`).join('')}</tbody>
-    </table>`;
-  document.getElementById('cardResultadosReporte').style.display = 'block';
-  document.getElementById('btnImprimirReporte').style.display = data.length > 0 ? 'inline-block' : 'none';
+  if (dataset.length === 0) {
+    document.getElementById('reportTableBody').innerHTML = `<tr><td colspan="7" style="text-align:center; padding:20px;">Ningún hogar coincide con el criterio de filtrado parametrizado.</td></tr>`;
+  } else {
+    document.getElementById('reportTableBody').innerHTML = dataset.map(h => {
+      cChicos += h.hijos;
+      if (h.costera === 'Si') cCosta++;
+      return `
+        <tr>
+          <td><strong>${escapeHtml(formatearCedula(h.cedula))}</strong></td>
+          <td>${escapeHtml(h.nombre)}</td>
+          <td><small>${escapeHtml(mapLoc.get(h.localidadId))}<br>🧭 ${escapeHtml(mapSec.get(h.sectorId))}</small></td>
+          <td>${escapeHtml(h.telefono)}</td>
+          <td>${h.hijos}</td>
+          <td>${h.costera}</td>
+          <td>${escapeHtml(h.organizacion)}</td>
+        </tr>`;
+    }).join('');
+  }
+
+  document.getElementById('statTotalHogares').innerText = dataset.length;
+  document.getElementById('statTotalHijos').innerText = cChicos;
+  document.getElementById('statTotalCostera').innerText = cCosta;
 });
-document.getElementById('btnImprimirReporte').addEventListener('click', () => window.print());
 
-function descargarArchivoJson(o, n) {
-  const blob = new Blob([JSON.stringify(o, null, 2)], { type: 'application/json' });
+document.getElementById('btnImprimirReporte').addEventListener('click', () => {
+  document.getElementById('printMetaDate').innerText = `Fecha de Emisión Oficial: ${ObtenerFechaCompacta()} | Procesado de forma segura local PWA`;
+  window.print();
+});
+
+// =========================================================================
+// 8. SUBSISTEMA DE RESPALDO Y PORTABILIDAD LOCAL (CONFIGURACIÓN SELECTIVA)
+// =========================================================================
+// Control reactivo mutuo para el checkbox "Todo" y las opciones individuales
+document.addEventListener('DOMContentLoaded', () => {
+  const chkLoc = document.getElementById('chkRespaldoLocalidades');
+  const chkCen = document.getElementById('chkRespaldoCenso');
+  const chkTodo = document.getElementById('chkRespaldoTodo');
+
+  if (chkTodo && chkLoc && chkCen) {
+    chkTodo.addEventListener('change', (e) => {
+      const state = e.target.checked;
+      chkLoc.checked = state;
+      chkCen.checked = state;
+    });
+
+    const verificarHijosTodo = () => {
+      if (chkLoc.checked && chkCen.checked) {
+        chkTodo.checked = true;
+      } else {
+        chkTodo.checked = false;
+      }
+    };
+
+    chkLoc.addEventListener('change', verificarHijosTodo);
+    chkCen.addEventListener('change', verificarHijosTodo);
+  }
+});
+
+document.getElementById('btnExportarTodo').addEventListener('click', async () => {
+  const opcLocalidades = document.getElementById('chkRespaldoLocalidades').checked;
+  const opcCenso = document.getElementById('chkRespaldoCenso').checked;
+
+  if (!opcLocalidades && !opcCenso) {
+    showStatus('⚠️ Por favor, selecciona al menos una opción para generar el respaldo.');
+    return;
+  }
+
+  const dataExportacion = {};
+  let tipoRespaldo = '';
+
+  if (opcLocalidades) {
+    dataExportacion.localidades = await db.localidades.toArray();
+    dataExportacion.sectores = await db.sectores.toArray();
+    tipoRespaldo += 'LOCALIDADES_SECTORES_';
+  }
+  if (opcCenso) {
+    dataExportacion.hogares = await db.hogares.toArray();
+    tipoRespaldo += 'CENSO_';
+  }
+
+  if (opcLocalidades && opcCenso) {
+    tipoRespaldo = 'COMPLETO_';
+  }
+
+  const jsonString = JSON.stringify(dataExportacion, null, 2);
+  const blob = new Blob([jsonString], { type: 'application/json' });
   const url = URL.createObjectURL(blob);
-  const a = document.createElement('a'); a.href = url; a.download = n; a.click();
-}
-document.getElementById('btnExpSoloHogares').addEventListener('click', async () => {
-  descargarArchivoJson({ formato: "solo_hogares", hogares: await db.hogares.toArray() }, `Hogares-${new Date().toISOString().slice(0,10)}.json`);
-});
-document.getElementById('btnExpLocSectores').addEventListener('click', async () => {
-  descargarArchivoJson({ formato: "estructura_geografica", localidades: await db.localidades.toArray(), sectores: await db.sectores.toArray() }, `Estructura-${new Date().toISOString().slice(0,10)}.json`);
+  
+  const tempLink = document.createElement('a');
+  tempLink.href = url;
+  tempLink.download = `RESPALDO_${tipoRespaldo}${ObtenerFechaCompacta()}.json`;
+  document.body.appendChild(tempLink);
+  tempLink.click();
+  document.body.removeChild(tempLink);
+  URL.revokeObjectURL(url);
+  showStatus('✅ Respaldo descargado con éxito.');
 });
 
-document.getElementById('btnClickFile').addEventListener('click', () => document.getElementById('fileInputImport').click());
+document.getElementById('btnClickFile').addEventListener('click', () => {
+  document.getElementById('fileInputImport').click();
+});
+
 document.getElementById('fileInputImport').addEventListener('change', (e) => {
-  const file = e.target.files[0]; if (!file) return;
+  const file = e.target.files[0];
+  if (!file) return;
+
+  document.getElementById('fileInfoLabel').innerText = `Archivo cargado: ${file.name}`;
+  
   const reader = new FileReader();
-  reader.onload = function(evt) {
+  reader.onload = function(event) {
     try {
-      selectedImportData = JSON.parse(evt.target.result);
-      importType = selectedImportData.formato;
-      document.getElementById('btnProcesarImportacion').style.display = 'block';
-      document.getElementById('fileInfoLabel').innerText = file.name;
-    } catch { showStatus('JSON inválido'); }
+      const parsed = JSON.parse(event.target.result);
+      
+      // Valida si contiene al menos uno de los bloques válidos estructurados
+      if (parsed.localidades || parsed.sectores || parsed.hogares) {
+        selectedImportData = parsed;
+        
+        let componentesDetectados = [];
+        if (parsed.localidades && parsed.sectores) componentesDetectados.push('Localidades y Sectores');
+        if (parsed.hogares) componentesDetectados.push('Data de Censo');
+        
+        importType = componentesDetectados.join(' y ');
+        document.getElementById('btnProcesarImportacion').style.display = 'block';
+        showStatus(`📦 Estructura válida detectada (${importType}). Listo para consolidar.`);
+      } else {
+        throw new Error();
+      }
+    } catch (err) {
+      showStatus('❌ Archivo incompatible o corrupto.');
+      selectedImportData = null;
+      document.getElementById('fileInfoLabel').innerText = 'Ningún archivo seleccionado';
+      document.getElementById('btnProcesarImportacion').style.display = 'none';
+    }
   };
   reader.readAsText(file);
 });
+
 document.getElementById('btnProcesarImportacion').addEventListener('click', async () => {
-  if (importType === "solo_hogares" && selectedImportData.hogares) {
-    for (let h of selectedImportData.hogares) {
-      let ex = await db.hogares.where('cedula').equalsIgnoreCase(h.cedula).first();
-      if (!ex) await db.hogares.add(h);
+  if (!selectedImportData) return;
+  if (confirm(`🚨 ¡PRECAUCIÓN! Importar este archivo reescribirá por completo los componentes de tipo [${importType}] en el almacenamiento local. ¿Deseas continuar?`)) {
+    try {
+      // Limpieza y reescritura atómica únicamente de los segmentos presentes en el archivo JSON
+      if (selectedImportData.localidades) {
+        await db.localidades.clear();
+        for (let l of selectedImportData.localidades) { await db.localidades.add(l); }
+      }
+      
+      if (selectedImportData.sectores) {
+        await db.sectores.clear();
+        for (let s of selectedImportData.sectores) { await db.sectores.add(s); }
+      }
+      
+      if (selectedImportData.hogares) {
+        await db.hogares.clear();
+        for (let h of selectedImportData.hogares) { await db.hogares.add(h); }
+      }
+
+      showStatus('⚡ ¡Importación de Datos Completada Exitosamente!');
+      document.getElementById('fileInputImport').value = '';
+      document.getElementById('fileInfoLabel').innerText = 'Ningún archivo seleccionado';
+      document.getElementById('btnProcesarImportacion').style.display = 'none';
+      selectedImportData = null;
+      actualizarDesplegablesLocalidades();
+
+    } catch (err) {
+      console.error(err);
+      showStatus('❌ Ocurrió un fallo en la escritura de base de datos.');
     }
   }
-  showStatus('Datos consolidados.'); loadHogares();
 });
 
 document.getElementById('btnResetearTodo').addEventListener('click', async () => {
-  if (confirm('¿Borrar absolutamente todo?')) { await db.hogares.clear(); await db.sectores.clear(); location.reload(); }
+  if (confirm('🚨 ¿ATENCIÓN? Esta acción borrará de manera PERMANENTE todo el padrón de hogares, sectores y localidades personalizadas. ¿Proceder?')) {
+    if (confirm('🚨 Confirmación final: ¿Seguro que deseas reiniciar el almacenamiento local?')) {
+      await db.hogares.clear();
+      await db.sectores.clear();
+      await db.localidades.clear();
+      
+      await verificarYPrecargarLocalidades();
+      await actualizarDesplegablesLocalidades();
+      
+      showStatus('🗑️ Base de datos reestablecida con éxito.');
+      setTimeout(() => { document.getElementById('btnBackToMenu').click(); }, 1000);
+    }
+  }
 });
 
-function escapeHtml(str) { return str ? String(str).replace(/[&<>'\"]/g, m => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', "'": '&#39;', '"': '&quot;' }[m])) : ''; }
-
-// =========================================================================
-// MANEJADOR DE INSTALACIÓN UNIVERSAL (WINDOWS NATIVO / MÓVILES)
-// =========================================================================
-function inicializarInstalacionPWA() {
-  const banner = document.getElementById('bannerInstalacion');
-  const btnInstalar = document.getElementById('btnInstalarApp');
-  const btnCerrar = document.getElementById('btnCerrarBanner');
-
-  // Captura el disparador en Windows y Android
-  window.addEventListener('beforeinstallprompt', (e) => {
-    e.preventDefault(); 
-    deferredPrompt = e; 
-    banner.style.display = 'block'; // Muestra el cintillo superior de forma limpia
-  });
-
-  btnInstalar.addEventListener('click', async () => {
-    if (!deferredPrompt) return;
-    banner.style.display = 'none'; 
-    deferredPrompt.prompt(); // Despliega la ventana de confirmación oficial de Windows/Chrome
-    
-    const { outcome } = await deferredPrompt.userChoice;
-    if (outcome === 'accepted') {
-      showStatus('🚀 ¡Instalación completada! Revisa tu Escritorio.');
-    }
-    deferredPrompt = null;
-  });
-
-  btnCerrar.addEventListener('click', () => { banner.style.display = 'none'; });
-
-  window.addEventListener('appinstalled', () => {
-    banner.style.display = 'none';
-    deferredPrompt = null;
-    showStatus('🎉 Aplicación instalada con éxito en el sistema.');
-  });
+function ObtenerFechaCompacta() {
+  const d = new Date();
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
 }
 
-// Registro automático del Service Worker
+// =========================================================================
+// GESTIÓN DE SEGURIDAD CONTRA INYECCIÓN HTML
+// =========================================================================
+function escapeHtml(str) {
+  if (!str) return '';
+  return String(str)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#039;');
+}
+
+// =========================================================================
+// 9. GESTOR DE ACTUALIZACIONES Y CAPTURA DE INSTALACIÓN NATIVA PWA
+// =========================================================================
+let clickRegistration = null;
+let deferredPrompt = null; 
+
+window.addEventListener('beforeinstallprompt', (e) => {
+  e.preventDefault();
+  deferredPrompt = e;
+  
+  const btnInstallUi = document.getElementById('menu-item-install');
+  if (btnInstallUi) {
+    btnInstallUi.style.display = 'block';
+  }
+});
+
+document.getElementById('menu-item-install').addEventListener('click', async () => {
+  if (!deferredPrompt) return;
+  
+  deferredPrompt.prompt();
+  
+  const { outcome } = await deferredPrompt.userChoice;
+  if (outcome === 'accepted') {
+    showStatus('📲 ¡Gracias por instalar la aplicación!');
+    document.getElementById('menu-item-install').style.display = 'none';
+  } else {
+    showStatus('⚠️ Instalación aplazada.');
+  }
+  
+  deferredPrompt = null;
+});
+
+window.addEventListener('appinstalled', () => {
+  showStatus('🎉 Aplicación ejecutándose de manera nativa.');
+  document.getElementById('menu-item-install').style.display = 'none';
+  deferredPrompt = null;
+});
+
 if ('serviceWorker' in navigator) {
   window.addEventListener('load', () => {
     navigator.serviceWorker.register('./sw.js')
-      .then(() => console.log('Service Worker Operativo para modo Offline'))
-      .catch(err => console.error('Error Service Worker', err));
+      .then(reg => {
+        clickRegistration = reg;
+        
+        reg.addEventListener('updatefound', () => {
+          const newWorker = reg.installing;
+          newWorker.addEventListener('statechange', () => {
+            if (newWorker.state === 'installed' && navigator.serviceWorker.controller) {
+              solicitarActualizacionAlUsuario();
+            }
+          });
+        });
+      })
+      .catch(err => console.error('Error registrando Service Worker:', err));
   });
+
+  navigator.serviceWorker.addEventListener('controllerchange', () => {
+    window.location.reload();
+  });
+}
+
+document.getElementById('menu-item-update').addEventListener('click', async () => {
+  if (!clickRegistration) {
+    showStatus('⚠️ El Service Worker no está activo en este navegador.');
+    return;
+  }
+
+  showStatus('🔍 Buscando actualizaciones en el servidor...');
+  
+  try {
+    await clickRegistration.update();
+    
+    setTimeout(() => {
+      if (!clickRegistration.installing && !clickRegistration.waiting) {
+        showStatus('✅ Tienes instalada la versión más reciente.');
+      }
+    }, 1200);
+    
+  } catch (error) {
+    console.error(error);
+    showStatus('❌ Error al conectar con el servidor. Verifica tu red.');
+  }
+});
+
+function solicitarActualizacionAlUsuario() {
+  if (confirm('📦 ¡Nueva actualización disponible del sistema! ¿Deseas actualizar la aplicación ahora mismo para cargar los cambios técnicos?')) {
+    showStatus('⚡ Actualizando archivos del sistema...');
+    if (clickRegistration && clickRegistration.waiting) {
+      clickRegistration.waiting.postMessage({ action: 'skipWaiting' });
+    } else {
+      window.location.reload();
+    }
+  }
 }
