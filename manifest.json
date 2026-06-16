@@ -1,7 +1,7 @@
 {
-  "id": "/app-asistencia-local",
-  "name": "Asistencia Diaria",
-  "short_name": "Asistencia",
+  "id": "/app-ejidos-local",
+  "name": "Ejidos Municipales",
+  "short_name": "Ejidos",
   "start_url": ".",
   "display": "standalone",
   "orientation": "portrait",
