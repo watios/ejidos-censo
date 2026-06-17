@@ -13,18 +13,27 @@ let selectedImportData = null;
 let importType = ''; 
 let currentFotoBase64 = ''; 
 
-const localidadesPredefinidas = ["San Pedro", "Bichar", "Guinima", "Amparo", "Guamache", "La Uva", "Zulica"];
+// ESTRUCTURAS PREDEFINIDAS CON IDS FIJOS PARA EVITAR DESALINEACIÓN TRAS RESTAURAR
+const localidadesPredefinidas = [
+  { id: 1, nombre: "San Pedro" },
+  { id: 2, nombre: "Bichar" },
+  { id: 3, nombre: "Guinima" },
+  { id: 4, nombre: "Amparo" },
+  { id: 5, nombre: "Guamache" },
+  { id: 6, nombre: "La Uva" },
+  { id: 7, nombre: "Zulica" }
+];
 
 const sectoresSanPedro = [
-  "El Cardon",
-  "Valle Seco",
-  "EL Boton",
-  "Urb. Hugo Chavez (Aerepuerto)",
-  "Urica",
-  "Punta Honda",
-  "El Progreso",
-  "El Tamarindo",
-  "El Olivo"
+  { id: 1, localidadId: 1, nombre: "El Cardon" },
+  { id: 2, localidadId: 1, nombre: "Valle Seco" },
+  { id: 3, localidadId: 1, nombre: "EL Boton" },
+  { id: 4, localidadId: 1, nombre: "Urb. Hugo Chavez (Aerepuerto)" },
+  { id: 5, localidadId: 1, nombre: "Urica" },
+  { id: 6, localidadId: 1, nombre: "Punta Honda" },
+  { id: 7, localidadId: 1, nombre: "El Progreso" },
+  { id: 8, localidadId: 1, nombre: "El Tamarindo" },
+  { id: 9, localidadId: 1, nombre: "El Olivo" }
 ];
 
 document.addEventListener('DOMContentLoaded', async () => {
@@ -41,25 +50,22 @@ document.addEventListener('DOMContentLoaded', async () => {
 async function verificarYPrecargarLocalidades() {
   const count = await db.localidades.count();
   if (count === 0) {
-    // 1. Insertar localidades base
+    // Insertar localidades base forzando su ID fijo con .put()
     for (let loc of localidadesPredefinidas) {
-      await db.localidades.add({ nombre: loc.trim() });
+      await db.localidades.put({ id: loc.id, nombre: loc.nombre.trim() });
     }
   }
 
-  // 2. Verificar y asociar los sectores predefinidos de San Pedro
-  const sanPedroLoc = await db.localidades.where('nombre').equalsIgnoreCase('San Pedro').first();
-  if (sanPedroLoc) {
-    const sectoresExistentes = await db.sectores.where('localidadId').equals(sanPedroLoc.id).toArray();
-    
-    for (let secNombre of sectoresSanPedro) {
-      const existe = sectoresExistentes.some(s => s.nombre.toLowerCase() === secNombre.toLowerCase().trim());
-      if (!existe) {
-        await db.sectores.add({
-          localidadId: sanPedroLoc.id,
-          nombre: secNombre.trim()
-        });
-      }
+  // Verificar e insertar los sectores de San Pedro con sus IDs fijos con .put()
+  const sectoresExistentes = await db.sectores.toArray();
+  for (let sec of sectoresSanPedro) {
+    const existe = sectoresExistentes.some(s => s.nombre.toLowerCase() === sec.nombre.toLowerCase().trim());
+    if (!existe) {
+      await db.sectores.put({
+        id: sec.id,
+        localidadId: sec.localidadId,
+        nombre: sec.nombre.trim()
+      });
     }
   }
 }
@@ -680,7 +686,6 @@ document.getElementById('btnImprimirReporte').addEventListener('click', () => {
 // =========================================================================
 // 8. SUBSISTEMA DE RESPALDO Y PORTABILIDAD LOCAL (CONFIGURACIÓN SELECTIVA)
 // =========================================================================
-// Control reactivo mutuo para el checkbox "Todo" y las opciones individuales
 document.addEventListener('DOMContentLoaded', () => {
   const chkLoc = document.getElementById('chkRespaldoLocalidades');
   const chkCen = document.getElementById('chkRespaldoCenso');
@@ -761,7 +766,6 @@ document.getElementById('fileInputImport').addEventListener('change', (e) => {
     try {
       const parsed = JSON.parse(event.target.result);
       
-      // Valida si contiene al menos uno de los bloques válidos estructurados
       if (parsed.localidades || parsed.sectores || parsed.hogares) {
         selectedImportData = parsed;
         
@@ -787,34 +791,52 @@ document.getElementById('fileInputImport').addEventListener('change', (e) => {
 
 document.getElementById('btnProcesarImportacion').addEventListener('click', async () => {
   if (!selectedImportData) return;
-  if (confirm(`🚨 ¡PRECAUCIÓN! Importar este archivo reescribirá por completo los componentes de tipo [${importType}] en el almacenamiento local. ¿Deseas continuar?`)) {
+  
+  if (confirm(`🚨 ¿Deseas consolidar los datos? Las localidades/sectores base se actualizarán y los hogares se ACUMULARÁN secuencialmente en este dispositivo.`)) {
     try {
-      // Limpieza y reescritura atómica únicamente de los segmentos presentes en el archivo JSON
+      // 1. Las localidades y sectores se actualizan/sobreescriben respetando IDs fijos
       if (selectedImportData.localidades) {
-        await db.localidades.clear();
-        for (let l of selectedImportData.localidades) { await db.localidades.add(l); }
+        for (let l of selectedImportData.localidades) { await db.localidades.put(l); }
       }
       
       if (selectedImportData.sectores) {
-        await db.sectores.clear();
-        for (let s of selectedImportData.sectores) { await db.sectores.add(s); }
+        for (let s of selectedImportData.sectores) { await db.sectores.put(s); }
       }
       
+      // 2. FUSIÓN E IMPORTACIÓN ACUMULATIVA DE HOGARES (Sin .clear() y auto-incremento secuencial)
       if (selectedImportData.hogares) {
-        await db.hogares.clear();
-        for (let h of selectedImportData.hogares) { await db.hogares.add(h); }
+        let contadorNuevos = 0;
+
+        for (let h of selectedImportData.hogares) {
+          // Validamos por Cédula de Identidad para impedir que se duplique la misma persona
+          const yaExiste = await db.hogares.where('cedula').equalsIgnoreCase(h.cedula).first();
+          
+          if (!yaExiste) {
+            // Eliminamos la propiedad ID antigua para obligar a Dexie a colocar el registro en la cola secuencial (++id)
+            delete h.id; 
+            
+            await db.hogares.add(h); 
+            contadorNuevos++;
+          }
+        }
+        showStatus(`⚡ Se consolidaron y acumularon ${contadorNuevos} nuevos hogares al padrón local.`);
+      } else {
+        showStatus('⚡ Configuración de catálogos y referencias actualizada.');
       }
 
-      showStatus('⚡ ¡Importación de Datos Completada Exitosamente!');
+      // Limpieza cosmética de la interfaz de carga de archivos
       document.getElementById('fileInputImport').value = '';
       document.getElementById('fileInfoLabel').innerText = 'Ningún archivo seleccionado';
       document.getElementById('btnProcesarImportacion').style.display = 'none';
       selectedImportData = null;
+      
+      // Refrescar vistas
       actualizarDesplegablesLocalidades();
+      loadHogares();
 
     } catch (err) {
       console.error(err);
-      showStatus('❌ Ocurrió un fallo en la escritura de base de datos.');
+      showStatus('❌ Ocurrió un fallo en la consolidación y escritura de la base de datos.');
     }
   }
 });
